@@ -1,13 +1,10 @@
-// SHEET 0 — DC resistive circuits (Homework 0 + every matching past-paper question)
+// TOPIC 1 — DC resistive circuits (Homework 0 + every matching past-paper question)
 (function (G) {
-  const { S, U } = G;
+  const { S, U, B } = G;
   const T = String.raw;
-  const D = (tex) => '<div class="m">$$' + tex + '$$</div>';
-  const I = (tex) => '\\(' + tex + '\\)';
+  const { D, I, trap, tip } = B;
   const st = U.st, gt = U.givenTex;
-  const step = (title, body) => `<div class="step"><h4>${title}</h4>${body}</div>`;
-  const trap = (t) => `<div class="trap"><b>Trap</b> ${t}</div>`;
-  const tip = (t) => `<div class="tipbox"><b>Why it works</b> ${t}</div>`;
+  const step = (title, body) => B.step(title, body);
   const par = (a, b) => a * b / (a + b);
   const w = (body, wd, ht) => S.svg(wd, ht, body);
   const has = (x, n) => x && x.hl && x.hl.includes(n);
@@ -756,19 +753,10 @@
     },
   ];
 
-  // Which Sheet-0 question each paper asked (for the exam radar)
-  const PAPERS = ['SPR21', 'AUT21', 'SPR22', 'AUT22', 'SPR23', 'AUT23', 'SPR24', 'AUT24', 'SPR25', 'AUT25'];
-
-  G.SHEETS = G.SHEETS || [];
-  G.SHEETS.push({
-    id: 's0', n: 0, title: 'DC resistive circuits', hw: 'homework/HW0_Homework_0_Practice.pdf',
-    blurb: 'Ohm\'s law, series/parallel, dividers, sources, nodal analysis. The foundation for every other sheet — and a 20-mark Q1 part in <b>every</b> paper since 2021.',
-    topics: TOPICS, questions: Q, papers: PAPERS, figs: F,
-    insights: [
-      'Every paper (10 of 10) has at least one Sheet 0 style part in Q1 worth 20%. SPR21 had two.',
-      'The autumn circuit comes back in the next spring paper with a different node asked: AUT21→SPR22, AUT22→SPR23, AUT23→SPR24, AUT24→SPR25. Expect the AUT25 bridge (current through R₅) to return in SPR26.',
-      'Most common skill: finding a node voltage with 2+ sources (6 of 10 papers). Next: current sources and sign traps (3 papers).',
-      'Two decoy tricks keep showing up: a resistor in series with a current source (AUT22, SPR23, SPR21) — it never matters.',
-    ],
+  Q.forEach(q => {
+    q.topic = 'dc';
+    if (q.src.type === 'exam') { const m = /Q(\d)(\([a-e]\))?/.exec(q.src.label); q.src.q = m[1] + (m[2] || ''); }
+    G.LK.add(q);
   });
+  G.LK.dcNotes = TOPICS; G.LK.dcFigs = F;
 })(typeof window !== 'undefined' ? window : globalThis);

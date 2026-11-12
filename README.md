@@ -1,19 +1,21 @@
 # EEEN20020 Lock-In — Electrical & Electronic Circuits
 
-Practice-first study site for EEEN20020 (UCD), organised by homework sheet. Open `index.html` in a browser.
+Exam-cram site for EEEN20020 (UCD). Open `index.html` in a browser, or host the repo root as a static site (no build step).
 
 **Tabs**
-- **Learn** — short notes per topic, with a check question in each.
-- **Questions** — each homework question, followed by every past-paper version of it. Every one has hints, a worked solution with diagrams, and 🎲 new numbers.
-- **Practice** — scramble a shuffled deck (filter by topic / homework / past papers / drills). Numbers are random every time and answers are checked to ±1%.
-- **Exam radar** — which homework question showed up in which paper.
+- **Exam path** — six topics that cover every question on the 10 past papers (2021–2025). Each has a Learn-it box, core questions, and solutions revealed one step at a time with the reason for each step.
+- **Sample exams** — each past paper in order, fully worked, with exam rules and pacing.
+- **Mocks** — two fresh papers in the same style with new numbers.
+- **All homework** — Homework 0 and basics drills.
+- **Exam map** — which topic each question tested.
 
-Your student number (top right) sets the α…λ values, so "My numbers" matches your homework sheet.
+Every question can be re-done with new numbers. Progress (Got it / Need to redo) is saved in the browser. Keyboard: `J`/`K` question, `N` next step, `H` hint, `G` got it, `R` redo, `S` scramble, `?` help.
 
-**Sheets done:** Sheet 0 (DC resistive circuits: 5 homework Qs, 11 past-paper twins, 7 basics drills).
+**Checking the maths:** `node tests/verify.mjs` runs every worked answer against an independent circuit simulation (DC and phasor nodal analysis, time stepping for transients and diodes), on the paper values plus random sets.
 
 **Files**
-- `homework/` — homework sheets
-- `papers/` — past final exams 2021–2025 (Autumn + Spring)
-- `data/sheet0.js` — all Sheet 0 questions and solutions (add `data/sheet1.js` for the next sheet)
-- `tests/verify.mjs` — `node tests/verify.mjs` checks every formula answer against a circuit solver (default + 200 random value sets per question)
+- `data/t1…t6_*.js` — questions and solutions per topic; `data/exams.js` — Learn-it boxes, sample exams, mocks, data version
+- `homework/`, `papers/` — source PDFs
+- `vendor/katex/` — maths rendering (KaTeX, MIT licence)
+
+When data changes, bump `LK.version` in `data/exams.js` and the `?v=` strings in `index.html`.

@@ -120,5 +120,65 @@
         <text x="${x}" y="${y + 5}" text-anchor="middle" class="sl nvt">${t}</text>`;
     },
   };
+
+  // ---------- extra parts (AC, op-amps, diodes, transformers) ----------
+  Object.assign(S, {
+    C(p1, p2, o = {}) {
+      return part(p1, p2, 4, () => `<line x1="-4" y1="-11" x2="-4" y2="11"/><line x1="4" y1="-11" x2="4" y2="11"/>`, o);
+    },
+    L(p1, p2, o = {}) {
+      return part(p1, p2, 20, () => `<path d="M-20,0 a5,6 0 0 1 10,0 a5,6 0 0 1 10,0 a5,6 0 0 1 10,0 a5,6 0 0 1 10,0"/>`, o);
+    },
+    // Diode: anode at p1, cathode at p2 (current flows p1 -> p2)
+    D(p1, p2, o = {}) {
+      return part(p1, p2, 8, (c) => `<polygon points="-8,-8 8,0 -8,8" fill="var(--bg-card)"/><line x1="8" y1="-8" x2="8" y2="8"/>`, o);
+    },
+    // Controlled current source (diamond): current flows p1 -> p2 through it
+    CS(p1, p2, o = {}) {
+      return part(p1, p2, 17, (c) => `<polygon points="-17,0 0,-14 17,0 0,14" fill="var(--bg-card)"/>
+        <line x1="-8" y1="0" x2="7" y2="0"/><polyline points="2,-5 8,0 2,5" fill="${c}"/>`, { kind: 'src', ...o });
+    },
+    // Square / pulse source: + at p1
+    Vsq(p1, p2, o = {}) {
+      return part(p1, p2, 17, () => `<circle r="17" fill="var(--bg-card)"/><polyline points="-9,5 -9,-5 0,-5 0,5 9,5 9,-5" transform="rotate(-90)" stroke-width="1.3"/>`, { kind: 'src', ...o });
+    },
+    // Switch between p1 and p2 (drawn open)
+    SW(p1, p2, o = {}) {
+      return part(p1, p2, 14, (c) => `<circle cx="-14" cy="0" r="2.5" fill="${c}"/><circle cx="14" cy="0" r="2.5" fill="${c}"/><line x1="-14" y1="0" x2="${o.closed ? 14 : 10}" y2="${o.closed ? 0 : -11}"/>`, o);
+    },
+    // Op-amp: left edge at x, centre y. Inputs at (x, y-14) and (x, y+14); output at (x+60, y).
+    opamp(p, o = {}) {
+      const [x, y] = p, top = o.plusTop ? '+' : '−', bot = o.plusTop ? '−' : '+';
+      return `<polygon points="${x},${y - 30} ${x},${y + 30} ${x + 60},${y}" fill="var(--bg-card)" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round"/>
+        <text x="${x + 9}" y="${y - 9}" class="pm" text-anchor="middle" style="font-size:14px">${top}</text>
+        <text x="${x + 9}" y="${y + 19}" class="pm" text-anchor="middle" style="font-size:14px">${bot}</text>`;
+    },
+    // Ideal transformer centred at x between y1 (top) and y2 (bottom). Primary terminals at x-16, secondary at x+16.
+    xfmr(x, y1, y2, o = {}) {
+      const coil = (cx, dir) => { let d = `M${cx},${y1}`; const n = 4, h = (y2 - y1) / n; for (let i = 0; i < n; i++) d += ` a6,${h / 2} 0 0 ${dir} 0,${h}`; return `<path d="${d}" fill="none" stroke="var(--ink)" stroke-width="1.6"/>`; };
+      return coil(x - 16, 1) + coil(x + 16, 0) +
+        `<line x1="${x - 3}" y1="${y1}" x2="${x - 3}" y2="${y2}" stroke="var(--ink)" stroke-width="1.2"/><line x1="${x + 3}" y1="${y1}" x2="${x + 3}" y2="${y2}" stroke="var(--ink)" stroke-width="1.2"/>
+        <text x="${x - 30}" y="${(y1 + y2) / 2 + 5}" text-anchor="end" class="sl">${sub(o.l1 || 'N1')}</text><text x="${x + 30}" y="${(y1 + y2) / 2 + 5}" text-anchor="start" class="sl">${sub(o.l2 || 'N2')}</text>`;
+    },
+    // Simple y-vs-x plot. curves: [{f, c, dash, w}], marks: [{y, t}] horizontal guide lines, xm: [{x, t}]
+    plot(o) {
+      const W = o.w || 320, H = o.h || 190, L = 46, R = 14, T = 14, B = 30;
+      const [x0, x1] = o.x, [y0, y1] = o.y;
+      const X = (x) => L + (W - L - R) * (x - x0) / (x1 - x0), Y = (y) => H - B - (H - T - B) * (y - y0) / (y1 - y0);
+      let s = `<line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}" stroke="var(--ink)" stroke-width="1.2"/>`;
+      const zy = y0 <= 0 && y1 >= 0 ? Y(0) : H - B;
+      s += `<line x1="${L}" y1="${f(zy)}" x2="${W - R}" y2="${f(zy)}" stroke="var(--ink)" stroke-width="1.2"/>`;
+      (o.marks || []).forEach(m => { s += `<line x1="${L}" y1="${f(Y(m.y))}" x2="${W - R}" y2="${f(Y(m.y))}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4"/><text x="${L - 5}" y="${f(Y(m.y) + 4)}" text-anchor="end" class="sv">${m.t}</text>`; });
+      (o.xm || []).forEach(m => { s += `<line x1="${f(X(m.x))}" y1="${f(zy - 4)}" x2="${f(X(m.x))}" y2="${f(zy + 4)}" stroke="var(--ink)"/><text x="${f(X(m.x))}" y="${H - B + 14}" text-anchor="middle" class="sv">${m.t}</text>`; });
+      (o.curves || []).forEach(cv => {
+        const n = cv.n || 240; let d = '';
+        for (let i = 0; i <= n; i++) { const x = x0 + (x1 - x0) * i / n; const y = Math.max(y0, Math.min(y1, cv.f(x))); d += (i ? 'L' : 'M') + f(X(x)) + ',' + f(Y(y)); }
+        s += `<path d="${d}" fill="none" stroke="${cv.c || 'var(--hl)'}" stroke-width="${cv.w || 2.4}" ${cv.dash ? 'stroke-dasharray="5 4"' : ''} stroke-linejoin="round"/>`;
+      });
+      if (o.xl) s += `<text x="${W - R}" y="${H - 4}" text-anchor="end" class="sv">${o.xl}</text>`;
+      if (o.yl) s += `<text x="${L + 6}" y="${T + 2}" class="sl">${o.yl}</text>`;
+      return `<svg viewBox="0 0 ${W} ${H}" class="schem plot" xmlns="http://www.w3.org/2000/svg" role="img">${s}</svg>`;
+    },
+  });
   G.S = S;
 })(typeof window !== 'undefined' ? window : globalThis);

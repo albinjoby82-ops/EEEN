@@ -2,7 +2,8 @@
 (function (G) {
   const PFX = [[1e9, 'G', 'G'], [1e6, 'M', 'M'], [1e3, 'k', 'k'], [1, '', ''], [1e-3, 'm', 'm'], [1e-6, 'µ', '\\mu '], [1e-9, 'n', 'n'], [1e-12, 'p', 'p']];
 
-  function pick(v) {
+  function pick(v, unit) {
+    if (unit !== undefined && (unit === '°' || unit === 'dB' || unit === '')) return PFX[3];
     const a = Math.abs(v);
     if (a === 0) return PFX[3];
     for (const p of PFX) if (a >= p[0] * 0.9995) return p;
@@ -17,7 +18,9 @@
     return s;
   }
   // 3 s.f. with SI prefix: si(0.00201,'A') -> "2.01 mA"
+  const NOPFX = { '°': 1, 'dB': 1, '': 1 };
   function si(v, unit, sf = 3) {
+    if (unit in NOPFX) return num(v, sf) + (unit === '°' ? '°' : unit ? ' ' + unit : '');
     if (v === 0) return '0 ' + unit;
     const p = pick(v);
     return num(v / p[0], sf) + ' ' + p[1] + unit;
@@ -25,6 +28,7 @@
   const texUnit = (u) => u.replace('Ω', '\\Omega').replace('°', '^\\circ');
   // TeX version: "2.01\,\mathrm{mA}"
   function st(v, unit, sf = 3) {
+    if (unit in NOPFX) return num(v, sf) + (unit === '°' ? '^\\circ' : unit ? '\\,\\mathrm{' + unit + '}' : '');
     if (v === 0) return '0\\,' + texUnit(unit);
     const p = pick(v);
     const u = unit === 'Ω' ? `${p[2] ? '\\mathrm{' + p[2].trim() + '}' : ''}\\Omega` : (p[2] === '\\mu ' ? '\\mu\\mathrm{' + unit + '}' : `\\mathrm{${p[2]}${unit}}`);
@@ -43,7 +47,7 @@
   // Parse an answer: "2.01", "2.01m", "2.01 mA", "2.01e-3", "-1.2k"
   function parse(str, shownScale) {
     if (str == null) return NaN;
-    let s = String(str).trim().replace(/,/g, '.').replace(/\s+/g, '').replace(/[VAWΩΩ]|ohms?|°|deg/gi, '');
+    let s = String(str).trim().replace(/,/g, '.').replace(/\s+/g, '').replace(/dB|Hz|[VAWΩΩFHSs]$|ohms?|°|deg/gi, '').replace(/[VAW]$/, '');
     if (!s) return NaN;
     const m = /^([+\-−]?\d*\.?\d+(?:e[+\-]?\d+)?)([GMkmuµnp]?)$/i.exec(s.replace('−', '-'));
     if (!m) return NaN;
@@ -57,6 +61,19 @@
     if (Math.abs(truth) < 1e-12) return Math.abs(user) < 1e-9;
     return Math.abs(user - truth) <= Math.abs(truth) * rel + 1e-12;
   }
+
+
+  // ---------- complex numbers: [re, im] ----------
+  const Z = {
+    c: (re, im = 0) => [re, im],
+    add: (a, b) => [a[0] + b[0], a[1] + b[1]], sub: (a, b) => [a[0] - b[0], a[1] - b[1]],
+    mul: (a, b) => [a[0] * b[0] - a[1] * b[1], a[0] * b[1] + a[1] * b[0]],
+    div: (a, b) => { const d = b[0] * b[0] + b[1] * b[1]; return [(a[0] * b[0] + a[1] * b[1]) / d, (a[1] * b[0] - a[0] * b[1]) / d]; },
+    inv: (a) => Z.div([1, 0], a), abs: (a) => Math.hypot(a[0], a[1]), deg: (a) => Math.atan2(a[1], a[0]) * 180 / Math.PI,
+    par: (a, b) => Z.div(Z.mul(a, b), Z.add(a, b)), sc: (a, k) => [a[0] * k, a[1] * k],
+    R: (r) => [r, 0], L: (w, l) => [0, w * l], Cap: (w, c) => [0, -1 / (w * c)],
+  };
+  const sgn = (x, tex) => (x < 0 ? (tex ? '-' : '−') : '+');
 
   // ---------- random ----------
   const E12 = [1.0, 1.2, 1.5, 1.8, 2.2, 2.7, 3.3, 3.9, 4.7, 5.6, 6.8, 8.2];
@@ -106,5 +123,5 @@
     return { v: (n) => n === '0' ? 0 : x[id(n)], ivs: (idx) => x[N + idx] };
   }
 
-  G.U = { si, st, given, givenTex, num, parse, close, R, shuffle, symbols, mna, pick, texUnit };
+  G.U = { si, st, given, givenTex, num, parse, close, R, shuffle, symbols, mna, pick, texUnit, Z, sgn };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1,276 +1,228 @@
+// EEEN20020 Lock-In — single-page app: exam path, sample exams, mocks, all homework, exam map.
 (function () {
-  const { U } = window;
-  const $ = (s, el = document) => el.querySelector(s);
+  const { U, LK } = window;
+  const $ = (s, el = document) => el.querySelector(s), $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
   const store = {
     get(k, d) { try { const v = localStorage.getItem('eeen.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem('eeen.' + k, JSON.stringify(v)); } catch (e) { } },
   };
-  const state = {
-    sheet: store.get('sheet', 's0'),
-    sn: store.get('sn', '25382076'),
-    progress: store.get('progress', {}),
-    qTopic: 'all',
-    practice: { topics: [], kinds: { hw: true, exam: true, drill: true }, deck: [], i: 0, score: 0, done: 0 },
-  };
-  const sheet = () => window.SHEETS.find(s => s.id === state.sheet) || window.SHEETS[0];
-  const topicName = (id) => (sheet().topics.find(t => t.id === id) || {}).short || id;
+  const state = { sn: store.get('sn', '25382076'), prog: store.get('prog2', {}), active: null, pdf: false };
+  const topic = (id) => LK.topics.find(t => t.id === id);
+  const examQs = LK.Q.filter(q => q.src.type === 'exam');
+  const got = (ids) => ids.filter(id => state.prog[id] === 'got').length;
+  const minutes = (q) => (q.src.marks === '50 marks' ? 30 : 12);
 
-  function typeset(el) {
-    const run = () => window.MathJax.typesetPromise([el]).then(() => fit(el)).catch(() => { });
-    if (window.MathJax && window.MathJax.typesetPromise) return run();
-    if (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) return window.MathJax.startup.promise.then(run);
-    setTimeout(() => typeset(el), 300);
-  }
-
-  // shrink any display equation that is wider than the screen
+  // shrink any display equation wider than the screen
   function fit(el) {
-    el.querySelectorAll('.m').forEach(m => {
-      m.style.fontSize = '';
-      const c = m.querySelector('mjx-container'); if (!c) return;
-      const need = c.scrollWidth, have = m.clientWidth - 4;
-      if (need > have && have > 0) m.style.fontSize = Math.max(58, Math.floor(106 * have / need)) + '%';
-    });
+    $$('.m', el).forEach(m => { m.style.fontSize = ''; const k = m.firstElementChild; if (!k) return; const need = k.scrollWidth, have = m.clientWidth - 2; if (need > have && have > 40) m.style.fontSize = Math.max(55, Math.floor(100 * have / need)) + '%'; });
   }
   window.addEventListener('resize', () => fit(document));
 
   // ---------- values ----------
-  function myValues(q) {
-    const sym = U.symbols(state.sn, q.symset || 'exam'); const v = {};
+  const hasSym = (q) => Object.values(q.params).some(p => p.sym);
+  function paperValues(q) {
+    const sym = U.symbols(state.sn, q.symset || 'exam'), v = {};
     for (const [k, p] of Object.entries(q.params)) v[k] = p.sym ? +(p.base + sym[p.sym] * p.step).toPrecision(12) : p.base;
     return v;
   }
   function randValues(q) { const v = {}; for (const [k, p] of Object.entries(q.params)) v[k] = p.rand ? p.rand() : p.base; return v; }
-  const hasMine = (q) => Object.values(q.params).some(p => p.sym);
-
-  const nm = (k) => k.replace(/^([A-Za-z])([A-Za-z]?\d+|[a-z]+)$/, '$1<sub>$2</sub>');
+  const NICE = { Rl: 'R<sub>load</sub>', Ll: 'L<sub>load</sub>', Cl: 'C<sub>load</sub>', beta: 'β', om: 'ω' };
+  const nm = (k) => NICE[k] || (k.length === 1 ? k : k.replace(/^([A-Za-z])(.+)$/, '$1<sub>$2</sub>'));
   function givenList(q, v, mine) {
-    return Object.entries(q.params).filter(([k]) => !(q.hideParams || []).includes(k)).map(([k, p]) => {
-      let s = `<span class="gv">${nm(k)} = <b>${p.unit === 's' ? U.num(v[k] * 1e3) + ' ms' : U.given(v[k], p.unit)}</b>`;
-      if (mine && p.sym) s += ` <span class="sym">(${p.unit === 'Ω' ? p.base : U.num(p.base / p.step)} + ${p.sym})${p.unit !== 'Ω' ? ' ' + (p.step === 1e-3 ? 'm' : 'µ') + p.unit : ''}</span>`;
-      return s + '</span>';
-    }).join('');
+    if (q.hideGiven) return '';
+    const items = Object.entries(q.params).filter(([k]) => !(q.hideParams || []).includes(k)).map(([k, p]) =>
+      `<span class="gv">${nm(k)} = <b>${U.given(v[k], p.unit)}</b>${mine && p.sym ? ` <span class="sym">(${U.given(p.base, p.unit)} + ${p.sym})</span>` : ''}</span>`);
+    return items.length ? `<div class="given">${items.join('')}</div>` : '';
   }
+  const fn = (x, v) => (typeof x === 'function' ? x(v) : x || '');
+  const srcBadge = (q) => `<span class="badge ${q.src.type}">${q.src.type === 'drill' ? 'Drill' : q.src.label}</span>`;
+  const statusIcon = (id) => (state.prog[id] === 'got' ? '<span class="st got" title="Got it">✓</span>' : state.prog[id] === 'redo' ? '<span class="st redo" title="Need to redo">↻</span>' : '<span class="st none"></span>');
 
-  function badge(q) {
-    if (q.src.type === 'hw') return `<span class="badge hw">${q.src.label}</span>`;
-    if (q.src.type === 'exam') return `<span class="badge ex">${q.src.label}</span>`;
-    return `<span class="badge dr">Drill</span>`;
+  // ---------- one question ----------
+  function qcard(q, opts = {}) {
+    const d = h(`<details class="q" id="q-${q.id}" data-id="${q.id}"><summary>${statusIcon(q.id)}<span class="qs-main">${opts.lab ? `<span class="qlab">${opts.lab}</span>` : srcBadge(q)}<span class="qt">${q.title}</span></span>${q.src.marks ? `<span class="marks">${q.src.marks}</span>` : ''}</summary></details>`);
+    let built = false;
+    d.addEventListener('toggle', () => { if (d.open) { if (!built) { built = true; build(d, q, opts); } setActive(d); } });
+    return d;
   }
+  function setActive(d) { if (state.active && state.active !== d) state.active.classList.remove('active'); state.active = d; d.classList.add('active'); }
 
-  // ---------- question card ----------
-  function card(q, opts = {}) {
-    const el = h(`<article class="qcard" data-id="${q.id}"></article>`);
-    let mine = opts.random ? false : hasMine(q) || !opts.random;
-    let v = opts.random ? randValues(q) : myValues(q);
-    let hintN = 0;
+  function build(d, q, opts) {
+    let mine = q.src.type !== 'drill', v = mine ? paperValues(q) : randValues(q), hintN = 0, stepN = 0;
+    const body = h('<div class="qb"></div>'); d.append(body);
+    d.addEventListener('click', () => setActive(d));
 
     function render() {
-      const a = q.calc(v);
-      const prog = state.progress[q.id];
-      el.innerHTML = `
-        <header class="qh">${badge(q)}<span class="qt">${q.title}</span>${q.src.marks ? `<span class="marks">${q.src.marks}</span>` : ''}${prog && prog.right ? '<span class="tick" title="solved">✓</span>' : ''}</header>
-        <div class="tags">${q.topics.map(t => `<span class="tag">${topicName(t)}</span>`).join('')}</div>
-        <div class="given">${givenList(q, v, mine)}</div>
-        ${q.note ? `<p class="note">${q.note}</p>` : ''}
-        ${q.lead ? `<p class="lead">${q.lead(v)}</p>` : ''}
-        <p class="ask">${q.ask}</p>
+      const a = q.calc(v); hintN = 0; stepN = 0;
+      const tp = topic(q.topic);
+      body.innerHTML = `
+        ${opts.hideTopic ? '' : `<div class="tags">${tp ? `<a class="tag t" href="#t-${tp.id}">Topic ${tp.n} · ${tp.name}</a>` : ''}${(q.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}${q.src.type !== 'drill' && q.src.marks ? `<span class="tag time">≈ ${minutes(q)} min</span>` : ''}</div>`}
+        ${givenList(q, v, mine && hasSym(q))}
+        ${q.note ? `<p class="note">${fn(q.note, v)}</p>` : ''}
+        ${q.lead ? `<p class="lead">${fn(q.lead, v)}</p>` : ''}
+        <p class="ask">${fn(q.ask, v)}</p>
         <div class="fig">${q.fig(v)}</div>
-        ${q.form ? `<p class="form">${q.form}</p>` : ''}
-        <form class="ans">${q.answers.map((an, i) => {
-          const pf = U.pick(a[an.k]);
-          return `<label class="arow"><span class="al">${an.label}</span><input inputmode="decimal" autocomplete="off" data-k="${an.k}" data-scale="${pf[0]}" placeholder="?"><span class="au">${pf[1]}${an.unit}</span><span class="res" data-r="${an.k}"></span></label>`;
-        }).join('')}
-          <div class="btns"><button class="b pri" type="submit">Check</button>
-          <button class="b" type="button" data-act="hint">Hint</button>
-          <button class="b" type="button" data-act="sol">Solution</button>
-          <button class="b" type="button" data-act="new" title="Random new values">🎲 New numbers</button>
-          ${hasMine(q) || q.src.type !== 'drill' ? `<button class="b ghost" type="button" data-act="mine">${hasMine(q) ? 'My numbers' : 'Paper numbers'}</button>` : ''}</div>
+        ${q.form ? `<p class="form">Answer format: ${q.form}</p>` : ''}
+        <form class="ans">${q.answers.map(an => { const pf = U.pick(a[an.k], an.unit);
+          return `<label class="arow"><span class="al">${an.label}</span><span class="ain"><input inputmode="text" autocomplete="off" autocapitalize="off" data-k="${an.k}" data-scale="${pf[0]}" placeholder="?"><span class="au">${pf[1]}${an.unit}</span><span class="res" data-r="${an.k}"></span></span></label>`; }).join('')}
+          <div class="btns"><button class="b pri" type="submit">Check</button><button class="b" type="button" data-act="hint">Hint <kbd>H</kbd></button>
+          <button class="b" type="button" data-act="scramble">🎲 New numbers <kbd>S</kbd></button>
+          ${q.src.type === 'drill' ? '' : `<button class="b ghost" type="button" data-act="paper">${hasSym(q) ? 'My numbers' : q.src.type === 'mock' ? 'Mock numbers' : q.src.type === 'hw' ? 'Sheet numbers' : 'Paper numbers'}</button>`}</div>
         </form>
         <div class="hints"></div>
-        <div class="sol" hidden></div>`;
-      const hintsEl = $('.hints', el);
-      for (let i = 0; i < hintN; i++) hintsEl.append(h(`<p class="hint"><b>Hint ${i + 1}</b> ${q.hints[i]}</p>`));
-
-      $('.ans', el).addEventListener('submit', (e) => {
+        <div class="solwrap"><div class="solbar"><button class="b step" type="button" data-act="next">Show step 1 <kbd>N</kbd></button><button class="b ghost" type="button" data-act="all">Show all <kbd>A</kbd></button><span class="stepc"></span></div><div class="sol"></div></div>
+        <div class="mark"><button class="b gotb" type="button" data-act="got">✓ Got it <kbd>G</kbd></button><button class="b redob" type="button" data-act="redo">↻ Need to redo <kbd>R</kbd></button></div>`;
+      const sol = $('.sol', body);
+      sol.innerHTML = q.sol(v, a, q) + `<div class="final"><b>Answer</b> ${q.answers.map(an => `${an.label} = <b>${U.si(a[an.k], an.unit)}</b>`).join(' · ')}${q.src.basedOn ? `<br><span class="muted">Same style as ${q.src.basedOn}.</span>` : ''}</div>`;
+      if (q.src.type === 'mock') $$('.flagbox', sol).forEach(e => e.remove());
+      const parts = [...sol.children]; parts.forEach(p => { p.hidden = true; });
+      const nextB = $('[data-act=next]', body), stepc = $('.stepc', body);
+      const upd = () => { nextB.disabled = stepN >= parts.length; nextB.innerHTML = stepN >= parts.length ? 'All steps shown' : (stepN ? 'Next step' : 'Show step 1') + ' <kbd>N</kbd>'; stepc.textContent = stepN ? `${Math.min(stepN, parts.length)} of ${parts.length}` : `${parts.length} steps`; };
+      const reveal = (n) => { while (stepN < Math.min(n, parts.length)) { parts[stepN].hidden = false; fit(parts[stepN]); stepN++; } upd(); };
+      const mark = (s) => { if (state.prog[q.id] === s) delete state.prog[q.id]; else state.prog[q.id] = s; store.set('prog2', state.prog); paintMark(); refreshProgress(); };
+      const paintMark = () => { $('.gotb', body).classList.toggle('on', state.prog[q.id] === 'got'); $('.redob', body).classList.toggle('on', state.prog[q.id] === 'redo'); const s = $('summary .st', d); if (s) s.outerHTML = statusIcon(q.id); };
+      const api = {
+        next() { if (stepN < parts.length) { reveal(stepN + 1); parts[stepN - 1].scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } },
+        all() { reveal(parts.length); },
+        hint() { const hs = q.hints || []; if (hintN < hs.length) { $('.hints', body).append(h(`<p class="hint"><b>Hint ${hintN + 1}</b> ${hs[hintN]}</p>`)); hintN++; } if (hintN >= hs.length) $('[data-act=hint]', body).disabled = true; },
+        scramble() { v = randValues(q); mine = false; render(); },
+        paper() { v = paperValues(q); mine = true; render(); },
+        got() { mark('got'); }, redo() { mark('redo'); },
+      };
+      d._api = api; upd(); paintMark();
+      $$('[data-act]', body).forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); setActive(d); api[b.dataset.act](); }));
+      if (!(q.hints || []).length) $('[data-act=hint]', body).hidden = true;
+      $('.ans', body).addEventListener('submit', (e) => {
         e.preventDefault();
-        let allOk = true, any = false;
-        el.querySelectorAll('input[data-k]').forEach(inp => {
-          const k = inp.dataset.k, truth = a[k];
-          const r = $(`[data-r="${k}"]`, el);
-          if (!inp.value.trim()) { r.textContent = ''; allOk = false; return; }
-          any = true;
-          const u = U.parse(inp.value, +inp.dataset.scale);
-          const ok = U.close(u, truth, 0.01);
-          const signOnly = !ok && U.close(-u, truth, 0.01);
-          r.className = 'res ' + (ok ? 'ok' : 'bad');
-          r.textContent = ok ? '✓' : signOnly ? '✗ sign!' : '✗';
-          if (!ok) allOk = false;
+        $$('input[data-k]', body).forEach(inp => {
+          const k = inp.dataset.k, r = $(`[data-r="${k}"]`, body);
+          if (!inp.value.trim()) { r.textContent = ''; return; }
+          const u = U.parse(inp.value, +inp.dataset.scale), ok = U.close(u, a[k], 0.011), signOnly = !ok && U.close(-u, a[k], 0.011);
+          r.className = 'res ' + (ok ? 'ok' : 'bad'); r.textContent = ok ? '✓' : signOnly ? '✗ check the sign' : '✗';
         });
-        if (!any) return;
-        const pr = state.progress[q.id] || { tries: 0, right: 0 }; pr.tries++; if (allOk) pr.right++;
-        state.progress[q.id] = pr; store.set('progress', state.progress);
-        if (opts.onCheck) opts.onCheck(allOk);
       });
-      el.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
-        const act = b.dataset.act;
-        if (act === 'hint') {
-          if (hintN < q.hints.length) { hintsEl.append(h(`<p class="hint"><b>Hint ${hintN + 1}</b> ${q.hints[hintN]}</p>`)); hintN++; typeset(hintsEl); }
-          if (hintN >= q.hints.length) b.disabled = true;
-        }
-        if (act === 'sol') {
-          const s = $('.sol', el);
-          if (s.hidden) { s.innerHTML = `<h3 class="solh">Worked solution</h3>` + q.sol(v, a) + answerLine(q, a); s.hidden = false; typeset(s); b.textContent = 'Hide solution'; }
-          else { s.hidden = true; b.textContent = 'Solution'; }
-        }
-        if (act === 'new') { v = randValues(q); mine = false; hintN = 0; render(); }
-        if (act === 'mine') { v = myValues(q); mine = true; hintN = 0; render(); }
-      }));
-      typeset(el);
+      fit(body);
     }
     render();
-    return el;
   }
-  function answerLine(q, a) {
-    return `<div class="final"><b>Answer</b> ${q.answers.map(an => `${an.label} = <b>${U.si(a[an.k], an.unit)}</b>`).join(' · ')}</div>`;
-  }
+
+  const qlist = (ids, opts = {}) => { const el = h('<div class="qlist"></div>'); ids.forEach((id, i) => el.append(qcard(LK.byId[id], typeof opts === 'function' ? opts(LK.byId[id], i) : opts))); return el; };
+  const bar = (n, of) => `<span class="pbar" title="${n} of ${of}"><i style="width:${of ? 100 * n / of : 0}%"></i></span><span class="pnum">${n} / ${of}</span>`;
+  const rulesBox = () => `<details class="rules"><summary>Exam rules and pacing</summary><dl>${LK.rules.map(r => `<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join('')}</dl></details>`;
 
   // ---------- views ----------
   const views = {
-    learn() {
-      const s = sheet();
-      const el = h(`<section><div class="hero"><h2>Sheet ${s.n} · ${s.title}</h2><p>${s.blurb}</p>
-        <p class="how"><b>How to use this</b>: try the question first → hints → solution → redo with 🎲 new numbers until it's automatic.</p></div></section>`);
-      s.topics.forEach((t, i) => {
-        const n = s.questions.filter(q => q.topics.includes(t.id)).length;
-        const d = h(`<details class="topic" ${i === 0 ? 'open' : ''}><summary><span class="tn">${i + 1}</span>${t.name}<span class="cnt">${n} Qs</span></summary>
-          <div class="tbody">${t.notes}
-          <div class="check"><b>Check yourself</b> ${t.check.q}<button class="b sm">Show answer</button><p class="ca" hidden>${t.check.a}</p></div>
-          <button class="b pri" data-go="${t.id}">Practise ${t.short} →</button></div></details>`);
-        $('.check button', d).onclick = (e) => { $('.ca', d).hidden = false; e.target.remove(); };
-        $('[data-go]', d).onclick = () => { state.practice.topics = [t.id]; state.practice.deck = []; location.hash = 'practice'; };
-        d.addEventListener('toggle', () => d.open && typeset(d));
-        el.append(d);
-      });
-      typeset(el);
+    path() {
+      const ids = examQs.map(q => q.id);
+      const el = h(`<section><div class="hero"><h2>Exam path</h2><p>Six topics cover <b>every question on all 10 past papers</b>. Work down the list.</p>
+        <p class="how"><b>How to use it:</b> try the question → hint → reveal the steps one at a time → mark <b>Got it</b> or <b>Need to redo</b> → hit 🎲 and do it again with new numbers.</p>
+        <div class="heroprog">${bar(got(ids), ids.length)} past-paper parts done</div></div><div class="tlist"></div></section>`);
+      LK.topics.forEach(t => { const all = t.core.concat(t.more);
+        $('.tlist', el).append(h(`<a class="tcard" href="#t-${t.id}"><span class="tn">${t.n}</span><span class="tmain"><b>${t.name}</b><span class="tsub">${t.sub}</span><span class="twhere">${t.where}</span><span class="tprog">${bar(got(all), all.length)}</span></span></a>`)); });
       return el;
     },
-    questions() {
-      const s = sheet();
-      const el = h(`<section><div class="chips" id="qtop"></div><div id="fams"></div></section>`);
-      const chips = $('#qtop', el);
-      [['all', 'All topics'], ...s.topics.map(t => [t.id, t.short])].forEach(([id, n]) => {
-        const c = h(`<button class="chip ${state.qTopic === id ? 'on' : ''}">${n}</button>`);
-        c.onclick = () => { state.qTopic = id; show('questions'); };
-        chips.append(c);
-      });
-      const fams = $('#fams', el);
-      const match = (q) => state.qTopic === 'all' || q.topics.includes(state.qTopic);
-      const hws = s.questions.filter(q => q.src.type === 'hw');
-      hws.forEach(hq => {
-        const twins = s.questions.filter(q => q.family === hq.family && q.src.type === 'exam');
-        if (!match(hq) && !twins.some(match)) return;
-        const block = h(`<div class="family"><div class="famh"><span>${hq.src.label}</span><span class="freq">${twins.length ? `turns up in <b>${new Set(twins.map(t => t.src.paper)).size}</b> past paper${twins.length > 1 ? 's' : ''}` : 'skill used inside other exam Qs'}</span></div></div>`);
-        block.append(card(hq));
-        if (twins.length) block.append(h(`<h3 class="twh">Past-paper versions</h3>`));
-        twins.filter(match).forEach(tq => block.append(lazy(tq)));
-        fams.append(block);
-      });
-      const drills = s.questions.filter(q => q.drill && match(q));
-      if (drills.length) {
-        const b = h(`<div class="family"><div class="famh"><span>Basics drills</span><span class="freq">new random numbers every time</span></div></div>`);
-        drills.forEach(q => b.append(lazy(q, { random: true })));
-        fams.append(b);
-      }
+    topic(id) {
+      const t = topic(id); if (!t) return views.path();
+      const nx = LK.topics[LK.topics.indexOf(t) + 1];
+      const el = h(`<section><a class="back" href="#path">← Exam path</a><div class="thead"><span class="tn big">${t.n}</span><div><h2>${t.name}</h2><p class="muted">${t.where}</p></div></div>
+        <h3 class="sec">Learn it</h3><div class="learn"></div>
+        <h3 class="sec">Core questions <span class="muted">one of each exam-style variation</span></h3><div class="core"></div>
+        <details class="more"><summary>More of the same <span class="muted">(${t.more.length} more past-paper parts)</span></summary></details>
+        ${nx ? `<a class="b pri big nextt" href="#t-${nx.id}">Next: Topic ${nx.n} · ${nx.name} →</a>` : `<a class="b pri big nextt" href="#exams">Next: Sample exams →</a>`}</section>`);
+      t.cards().forEach((c, k) => { const cd = h(`<details class="lcard" ${k === 0 ? 'open' : ''}><summary>${c.h}</summary><div class="lbody">${c.body}${c.check ? `<div class="check"><b>Quick check</b> ${c.check.q}<button class="b sm">Show answer</button><p class="ca" hidden>${c.check.a}</p></div>` : ''}</div></details>`);
+        const cb = $('.check button', cd); if (cb) cb.onclick = () => { $('.ca', cd).hidden = false; cb.remove(); };
+        cd.addEventListener('toggle', () => cd.open && fit(cd)); $('.learn', el).append(cd); });
+      $('.core', el).append(qlist(t.core)); $('.more', el).append(qlist(t.more));
       return el;
     },
-    practice() {
-      const s = sheet(), P = state.practice;
-      const el = h(`<section><div class="pset">
-        <p class="lbl">Topics <span class="muted">(none = all)</span></p><div class="chips" id="ptop"></div>
-        <p class="lbl">Include</p><div class="chips" id="pkind"></div>
-        <button class="b pri big" id="scr">🔀 Scramble a new deck</button></div><div id="deck"></div></section>`);
-      s.topics.forEach(t => {
-        const c = h(`<button class="chip ${P.topics.includes(t.id) ? 'on' : ''}">${t.short}</button>`);
-        c.onclick = () => { P.topics = P.topics.includes(t.id) ? P.topics.filter(x => x !== t.id) : [...P.topics, t.id]; c.classList.toggle('on'); };
-        $('#ptop', el).append(c);
-      });
-      [['hw', 'Homework'], ['exam', 'Past papers'], ['drill', 'Drills']].forEach(([k, n]) => {
-        const c = h(`<button class="chip ${P.kinds[k] ? 'on' : ''}">${n}</button>`);
-        c.onclick = () => { P.kinds[k] = !P.kinds[k]; c.classList.toggle('on'); };
-        $('#pkind', el).append(c);
-      });
-      const build = () => {
-        const pool = s.questions.filter(q => P.kinds[q.src.type] && (!P.topics.length || q.topics.some(t => P.topics.includes(t))));
-        P.deck = U.shuffle(pool).map(q => q.id); P.i = 0; P.score = 0; P.done = 0; drawDeck();
-      };
-      $('#scr', el).onclick = build;
-      const deckEl = $('#deck', el);
-      function drawDeck() {
-        deckEl.innerHTML = '';
-        if (!P.deck.length) { deckEl.append(h(`<p class="empty">Nothing in the deck yet — pick topics and hit Scramble.</p>`)); return; }
-        if (P.i >= P.deck.length) {
-          deckEl.append(h(`<div class="done"><h3>Deck finished</h3><p>${P.score} / ${P.deck.length} correct first time.</p></div>`));
-          const again = h(`<button class="b pri big">🔀 Scramble again</button>`); again.onclick = build; deckEl.append(again); return;
-        }
-        const q = s.questions.find(x => x.id === P.deck[P.i]);
-        let counted = false;
-        deckEl.append(h(`<div class="dbar"><span>Question ${P.i + 1} / ${P.deck.length}</span><span>Score ${P.score}</span><div class="pb"><i style="width:${100 * P.i / P.deck.length}%"></i></div></div>`));
-        deckEl.append(card(q, { random: true, onCheck: (ok) => { if (!counted) { counted = true; if (ok) { P.score++; $('.dbar span:last-child', deckEl).textContent = 'Score ' + P.score; } } } }));
-        const nx = h(`<div class="nav"><button class="b pri big">Next →</button></div>`);
-        $('button', nx).onclick = () => { P.i++; drawDeck(); window.scrollTo({ top: deckEl.offsetTop - 70, behavior: 'smooth' }); };
-        deckEl.append(nx);
-      }
-      if (!P.deck.length) build(); else drawDeck();
+    exams() {
+      const el = h(`<section><h2>Sample exams</h2><p class="muted">Every past paper, fully worked. Newest first: recent papers are the best guide to yours.</p>${rulesBox()}<div class="plist"></div></section>`);
+      LK.papers.forEach(p => $('.plist', el).append(h(`<a class="prow" href="#p-${p.code.toLowerCase()}"><b>${p.code}</b><span class="pname">${p.name}</span><span class="tprog">${bar(got(p.qs), p.qs.length)}</span></a>`)));
       return el;
     },
-    radar() {
-      const s = sheet();
-      const fams = s.questions.filter(q => q.src.type === 'hw');
-      let t = `<table class="radar"><thead><tr><th>Homework Q</th>${s.papers.map(p => `<th><span>${p.slice(0, 3)}</span><span>${p.slice(3)}</span></th>`).join('')}<th>Σ</th></tr></thead><tbody>`;
-      fams.forEach(f => {
-        const tw = s.questions.filter(q => q.family === f.family && q.src.type === 'exam');
-        t += `<tr><td><b>${f.src.label.replace('HW 0 · ', '')}</b><br><span class="muted">${f.title}</span></td>${s.papers.map(p => {
-          const hit = tw.filter(q => q.src.paper === p);
-          return `<td class="${hit.length ? 'hit' : ''}">${hit.map(q => `<a href="#q-${q.id}" title="${q.title}">${q.src.label.split('Q')[1]}</a>`).join('')}</td>`;
-        }).join('')}<td class="sum">${new Set(tw.map(q => q.src.paper)).size}</td></tr>`;
-      });
-      t += `</tbody></table>`;
-      const el = h(`<section><h2>Exam radar · Sheet ${s.n}</h2><p class="muted">Which homework question showed up in which paper (Q1 parts). Tap a cell to open it.</p>
-        <div class="tw">${t}</div><h3>What the papers tell you</h3><ul class="ins">${s.insights.map(i => `<li>${i}</li>`).join('')}</ul></section>`);
-      el.querySelectorAll('a[href^="#q-"]').forEach(a => a.onclick = (e) => {
-        e.preventDefault(); const q = s.questions.find(x => x.id === a.getAttribute('href').slice(3));
-        const m = h(`<div class="modal"><div class="mbox"><button class="b x">✕ Close</button></div></div>`);
-        $('.mbox', m).append(card(q)); $('.x', m).onclick = () => m.remove(); m.onclick = (ev) => { if (ev.target === m) m.remove(); };
-        document.body.append(m);
-      });
+    paper(code) {
+      const p = LK.papers.find(x => x.code.toLowerCase() === code); if (!p) return views.exams();
+      const el = h(`<section><a class="back" href="#exams">← Sample exams</a><h2>${p.code} · ${p.name}</h2>${state.pdf ? `<p><a href="${p.file}" target="_blank" rel="noopener">Open the original paper (PDF)</a></p>` : ''}${rulesBox()}<div class="pq"></div></section>`);
+      $('.pq', el).append(qlist(p.qs, (q) => ({ lab: `Q${q.src.q}` })));
       return el;
+    },
+    mocks() {
+      const el = h(`<section><h2>Fresh mocks</h2><p>Two new papers in the same style as the real ones, with new numbers. Do them <b>after</b> the exam path: timed, on paper, then check here.</p>${rulesBox()}<div class="plist"></div></section>`);
+      LK.mocks.forEach(m => $('.plist', el).append(h(`<a class="prow" href="#m-${m.code.slice(-1).toLowerCase()}"><b>${m.code}</b><span class="pname">7 parts · 200 marks · 120 min</span><span class="tprog">${bar(got(m.qs), m.qs.length)}</span></a>`)));
+      return el;
+    },
+    mock(c) {
+      const m = LK.mocks.find(x => x.code.slice(-1).toLowerCase() === c); if (!m) return views.mocks();
+      const el = h(`<section><a class="back" href="#mocks">← Mocks</a><h2>${m.name}</h2><div class="timer"><button class="b pri">Start 120-minute timer</button><span class="tleft"></span></div>${rulesBox()}<div class="pq"></div></section>`);
+      $('.pq', el).append(qlist(m.qs, (q) => ({ lab: `Q${q.src.q}`, hideTopic: true })));
+      let tm = null; $('.timer button', el).onclick = (e) => { const end = Date.now() + 120 * 60e3; clearInterval(tm); e.target.textContent = 'Restart timer';
+        const tick = () => { if (!document.body.contains(el)) return clearInterval(tm); const s = Math.max(0, Math.round((end - Date.now()) / 1000)); $('.tleft', el).textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} left`; }; tick(); tm = setInterval(tick, 1000); };
+      return el;
+    },
+    homework() {
+      const el = h(`<section><h2>All homework</h2><p class="muted">Homework 0 (the practice sheet) plus basics drills. ${state.pdf ? '<a href="homework/HW0_Homework_0_Practice.pdf" target="_blank" rel="noopener">Open the sheet (PDF)</a>' : ''}</p>
+        <div class="notebox"><b>What is not on the exam path, and why</b><p>The Homework 0 questions are single-skill versions of Topic 1. The exam path uses the exam versions instead, so these sit here as warm-ups.</p>
+        <p>The LTspice parts of the homework are left out. The exam is on paper, so you cannot be asked to simulate.</p><p>Only Homework 0 has been added so far. The other sheets will be sorted into the six topics when they are added.</p></div>
+        <h3 class="sec">Homework 0</h3><div class="hw"></div><h3 class="sec">Basics drills <span class="muted">random numbers every time</span></h3><div class="dr"></div></section>`);
+      $('.hw', el).append(qlist(LK.homework.ids)); $('.dr', el).append(qlist(LK.homework.drills));
+      return el;
+    },
+    map() {
+      const codes = LK.papers.map(p => p.code).reverse();
+      let t = `<table class="radar"><thead><tr><th>Topic</th>${codes.map(c => `<th><span>${c.slice(0, 3)}</span><span>${c.slice(3)}</span></th>`).join('')}<th>Parts</th></tr></thead><tbody>`;
+      LK.topics.forEach(tp => { const qs = examQs.filter(q => q.topic === tp.id);
+        t += `<tr><td><a href="#t-${tp.id}"><b>${tp.n}. ${tp.name}</b></a></td>${codes.map(c => { const hit = qs.filter(q => q.src.paper === c); return `<td class="${hit.length ? 'hit' : ''}">${hit.map(q => `<span class="${q.src.q.length === 1 ? 'big50' : ''}">${q.src.q.replace('1(', '').replace(')', '')}</span>`).join(' ')}</td>`; }).join('')}<td class="sum">${qs.length}</td></tr>`; });
+      t += '</tbody></table>';
+      return h(`<section><h2>Exam map</h2><p class="muted">Which topic each question tested. Letters are Q1 parts (20 marks each). <b class="big50">2</b> and <b class="big50">3</b> are the 50-mark questions.</p><div class="tw">${t}</div>
+        <h3 class="sec">What the papers tell you</h3><ul class="ins">
+        <li><b>Q2 is always a transfer function</b> (50 marks). Nine of ten use an op-amp. Topics 3 and 5 deserve the most time.</li>
+        <li><b>Each resit reuses the autumn circuits</b> and asks for a different quantity (AUT24 → SPR25, AUT23 → SPR24, and so on). Learn every quantity in each circuit, not just the one asked.</li>
+        <li><b>The autumn paper changes most years.</b> AUT25 brought in a controlled-source Thévenin, a bridge rectifier and a square wave into RC. Expect one or two new twists on the same six topics.</li>
+        <li><b>Q3 rotates:</b> diodes (5 papers), g<sub>m</sub> amplifier (2), transformer with RLC load (2), RC square wave (1).</li>
+        <li>Every paper has a DC part, a transient part and a diode part.</li></ul></section>`);
     },
   };
 
-  function lazy(q, opts) {
-    const d = h(`<details class="twin" id="q-${q.id}"><summary>${badge(q)}<span class="qt">${q.title}</span>${state.progress[q.id] && state.progress[q.id].right ? '<span class="tick">✓</span>' : ''}</summary></details>`);
-    let built = false;
-    d.addEventListener('toggle', () => { if (d.open && !built) { built = true; d.append(card(q, opts)); } });
-    return d;
+  // ---------- routing ----------
+  function refreshProgress() { const ids = examQs.map(q => q.id); $('#gprog').innerHTML = bar(got(ids), ids.length); }
+  function route() {
+    const hsh = location.hash.slice(1) || 'path'; let v, tab = hsh;
+    if (hsh.startsWith('t-')) { v = views.topic(hsh.slice(2)); tab = 'path'; }
+    else if (hsh.startsWith('p-')) { v = views.paper(hsh.slice(2)); tab = 'exams'; }
+    else if (hsh.startsWith('m-')) { v = views.mock(hsh.slice(2)); tab = 'mocks'; }
+    else if (['path', 'exams', 'mocks', 'homework', 'map'].includes(hsh)) v = views[hsh](); else { v = views.path(); tab = 'path'; }
+    $$('nav.tabs a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + tab));
+    state.active = null; const main = $('#main'); main.innerHTML = ''; main.append(v); fit(main); window.scrollTo(0, 0); refreshProgress();
   }
+  window.addEventListener('hashchange', route);
 
-  function show(name) {
-    if (!views[name]) name = 'learn';
-    document.querySelectorAll('nav.tabs a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + name));
-    const main = $('#main'); main.innerHTML = ''; main.append(views[name]());
+  // ---------- keyboard ----------
+  function nav(dir) {
+    const all = $$('#main details.q');
+    if (!all.length) return; let i = all.indexOf(state.active); i = i < 0 ? (dir > 0 ? 0 : all.length - 1) : Math.max(0, Math.min(all.length - 1, i + dir));
+    if (state.active && state.active !== all[i]) state.active.open = false;
+    const m = all[i].closest('details.more'); if (m) m.open = true;
+    all[i].open = true; setActive(all[i]); setTimeout(() => all[i].scrollIntoView({ block: 'start', behavior: 'smooth' }), 30);
   }
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { if (e.key === 'Escape') e.target.blur(); return; }
+    const k = e.key.toLowerCase(), api = state.active && state.active.open && state.active._api;
+    if (k === '?') { $('#keys').hidden = !$('#keys').hidden; return; }
+    if (k === 'escape') { $('#keys').hidden = true; return; }
+    if (k === 'j') return nav(1); if (k === 'k') return nav(-1);
+    if (!api) return;
+    const map = { n: 'next', ' ': 'next', a: 'all', h: 'hint', g: 'got', r: 'redo', s: 'scramble' };
+    if (map[k]) { e.preventDefault(); api[map[k]](); }
+  });
 
-  function header() {
-    const sc = $('#sheets');
-    sc.innerHTML = '';
-    window.SHEETS.forEach(s => { const c = h(`<button class="chip ${s.id === state.sheet ? 'on' : ''}">Sheet ${s.n}</button>`); c.onclick = () => { state.sheet = s.id; store.set('sheet', s.id); show(location.hash.slice(1)); header(); }; sc.append(c); });
-    sc.append(h(`<span class="chip ghost" title="Send the next homework sheet to add it">Sheet ${window.SHEETS.length} · next</span>`));
-    const sn = $('#sn'); sn.value = state.sn;
-    sn.onchange = () => { state.sn = sn.value.replace(/\D/g, '').slice(0, 8); store.set('sn', state.sn); show(location.hash.slice(1)); };
-  }
-
-  window.addEventListener('hashchange', () => { if (!location.hash.startsWith('#q-')) show(location.hash.slice(1)); });
-  header();
-  show(location.hash.slice(1) || 'learn');
+  // ---------- boot ----------
+  const sn = $('#sn'); sn.value = state.sn;
+  sn.onchange = () => { state.sn = sn.value.replace(/\D/g, '').slice(0, 8); store.set('sn', state.sn); route(); };
+  $('#ver').textContent = 'data ' + LK.version;
+  $('#keybtn').onclick = () => { $('#keys').hidden = !$('#keys').hidden; };
+  $('#keys').onclick = () => { $('#keys').hidden = true; };
+  fetch('papers/2025_AUT_EEEN20020.pdf', { method: 'HEAD' }).then(r => { if (r.ok && /pdf/.test(r.headers.get('content-type') || '')) { state.pdf = true; if (/^(p-|homework)/.test(location.hash.slice(1))) route(); } }).catch(() => { });
+  route();
 })();
