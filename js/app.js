@@ -1,228 +1,228 @@
-// EEEN20020 Lock-In — single-page app: exam path, sample exams, mocks, all homework, exam map.
+// EEEN Lock-In — same layout as MATH_Lock-In: contents on the left, one problem per screen,
+// steps revealed one at a time, Got it / Redo later, similar question with new numbers, my notes.
 (function () {
-  const { U, LK } = window;
-  const $ = (s, el = document) => el.querySelector(s), $$ = (s, el = document) => [...el.querySelectorAll(s)];
-  const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
-  const store = {
-    get(k, d) { try { const v = localStorage.getItem('eeen.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
-    set(k, v) { try { localStorage.setItem('eeen.' + k, JSON.stringify(v)); } catch (e) { } },
-  };
-  const state = { sn: store.get('sn', '25382076'), prog: store.get('prog2', {}), active: null, pdf: false };
-  const topic = (id) => LK.topics.find(t => t.id === id);
-  const examQs = LK.Q.filter(q => q.src.type === 'exam');
-  const got = (ids) => ids.filter(id => state.prog[id] === 'got').length;
-  const minutes = (q) => (q.src.marks === '50 marks' ? 30 : 12);
+  var U = window.U, LK = window.LK;
+  var KEY = 'eeen.';
+  function get(k, d) { try { var v = localStorage.getItem(KEY + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
+  function set(k, v) { try { localStorage.setItem(KEY + k, JSON.stringify(v)); } catch (e) { } }
+  var st = get('prog2', {}), notes = get('notes', {}), sn = get('sn', '25382076'), mode = get('mode', 'core');
 
-  // shrink any display equation wider than the screen
-  function fit(el) {
-    $$('.m', el).forEach(m => { m.style.fontSize = ''; const k = m.firstElementChild; if (!k) return; const need = k.scrollWidth, have = m.clientWidth - 2; if (need > have && have > 40) m.style.fontSize = Math.max(55, Math.floor(100 * have / need)) + '%'; });
+  // ---------- contents: parts > topics > questions, built from the question data ----------
+  var RULES = '<dl class="rules">' + LK.rules.map(function (r) { return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>'; }).join('') + '</dl>';
+  var INSIGHT = '<ul class="ins">' +
+    '<li><b>Q2 is always a transfer function</b> (50 marks). Nine of ten use an op-amp. Topics 3 and 5 deserve the most time.</li>' +
+    '<li><b>Each resit reuses the autumn circuits</b> and asks for a different quantity (AUT24 → SPR25, AUT23 → SPR24, and so on). Learn every quantity in each circuit, not just the one asked.</li>' +
+    '<li><b>The autumn paper changes most years.</b> AUT25 brought in a controlled-source Thévenin, a bridge rectifier and a square wave into RC. Expect one or two new twists on the same six topics.</li>' +
+    '<li><b>Q3 rotates:</b> diodes (5 papers), g<sub>m</sub> amplifier (2), transformer with RLC load (2), RC square wave (1).</li>' +
+    '<li>Every paper has a DC part, a transient part and a diode part.</li></ul>';
+  var qs = function (ids) { return ids.map(function (id) { return LK.byId[id]; }); };
+  var DATA = { core: [], papers: [], off: [] };
+  LK.topics.forEach(function (t) {
+    var topics = [{ title: 'Core questions', src: t.where + ' · one of each exam-style variation', cards: t.cards, label: 'Notes — learn it first', open: true, qs: qs(t.core) }];
+    if (t.more.length) topics.push({ title: 'More of the same', src: t.where + ' · the rest of the past-paper parts', cards: t.cards, label: 'Notes', qs: qs(t.more) });
+    DATA.core.push({ title: t.name, topics: topics });
+  });
+  DATA.core.push({ title: 'Mock exams', topics: LK.mocks.map(function (m) {
+    return { title: m.name, src: '7 parts · 200 marks · 120 minutes · new numbers, same style as the real papers', html: RULES, label: 'Exam rules and pacing', open: true, qs: qs(m.qs) };
+  }) });
+  LK.papers.forEach(function (p, i) {
+    DATA.papers.push({ title: p.code, topics: [{ title: p.name, src: 'Past paper, in order, fully worked', html: RULES + '<p><b>What the papers tell you</b></p>' + INSIGHT, label: 'Exam rules and pacing', open: i === 0, qs: qs(p.qs) }] });
+  });
+  DATA.off.push({ title: 'Homework 0', topics: [{ title: 'Practice sheet', src: 'Homework 0 · single-skill warm-ups for Topic 1', label: 'Why this is off the exam path', open: true,
+    html: '<p>The Homework 0 questions are single-skill versions of Topic 1 (DC circuits). The exam path uses the exam versions instead, so these sit here as warm-ups.</p><p>The LTspice parts of the homework are left out. The exam is on paper, so you cannot be asked to simulate.</p><p>Only Homework 0 has been added so far.</p>',
+    qs: qs(LK.homework.ids) }] });
+  DATA.off.push({ title: 'Basics drills', topics: [{ title: 'Basics drills', src: 'Random numbers every time', cards: LK.topics[0].cards, label: 'Notes', qs: qs(LK.homework.drills) }] });
+  if (!DATA[mode]) mode = 'core';
+
+  var list, cur = 0, shown = 0, sim = false, vals = null, steps = null, ansr = null;
+  function load() {
+    list = [];
+    DATA[mode].forEach(function (p, pi) { p.topics.forEach(function (t, ti) { t.qs.forEach(function (q, qi) {
+      list.push({ p: p, t: t, q: q, pi: pi + 1, ti: ti + 1, qi: qi + 1, num: (pi + 1) + '.' + (ti + 1) + '.' + (qi + 1), first: qi === 0 });
+    }); }); });
   }
-  window.addEventListener('resize', () => fit(document));
+  function restore() { cur = 0; var h = get('at-' + mode, null); for (var i = 0; i < list.length; i++) if (list[i].q.id === h) { cur = i; break; } }
+  load(); restore();
 
-  // ---------- values ----------
-  const hasSym = (q) => Object.values(q.params).some(p => p.sym);
+  function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+  var col = function (pi) { return 'c' + ((pi - 1) % 6 + 1); };
+  var fn = function (x, v) { return typeof x === 'function' ? x(v) : x || ''; };
+  var isDrill = function (q) { return q.src.type === 'drill'; };
+  function short(q) { return isDrill(q) ? q.title : mode === 'core' && q.src.type === 'exam' ? q.src.label.replace(' · ', ' ') : q.src.label.split(' · ').pop(); }
+  function refOf(q) { return isDrill(q) ? 'Basics drill' : q.src.label + (q.src.marks ? ', ' + q.src.marks : ''); }
+  function mark(id) { return st[id] === 'got' ? '✓' : st[id] === 'redo' ? '↺' : ''; }
+  // shrink any display equation wider than the page
+  function fit(root) {
+    [].forEach.call(root.querySelectorAll('.m'), function (m) { m.style.fontSize = ''; var k = m.firstElementChild; if (!k) return; var need = k.scrollWidth, have = m.clientWidth - 2; if (need > have && have > 40) m.style.fontSize = Math.max(55, Math.floor(100 * have / need)) + '%'; });
+  }
+  window.addEventListener('resize', function () { fit(document); });
+
+  // ---------- numbers ----------
+  function hasSym(q) { return Object.keys(q.params).some(function (k) { return q.params[k].sym; }); }
   function paperValues(q) {
-    const sym = U.symbols(state.sn, q.symset || 'exam'), v = {};
-    for (const [k, p] of Object.entries(q.params)) v[k] = p.sym ? +(p.base + sym[p.sym] * p.step).toPrecision(12) : p.base;
+    var sym = U.symbols(sn, q.symset || 'exam'), v = {};
+    Object.keys(q.params).forEach(function (k) { var p = q.params[k]; v[k] = p.sym ? +(p.base + sym[p.sym] * p.step).toPrecision(12) : p.base; });
     return v;
   }
-  function randValues(q) { const v = {}; for (const [k, p] of Object.entries(q.params)) v[k] = p.rand ? p.rand() : p.base; return v; }
-  const NICE = { Rl: 'R<sub>load</sub>', Ll: 'L<sub>load</sub>', Cl: 'C<sub>load</sub>', beta: 'β', om: 'ω' };
-  const nm = (k) => NICE[k] || (k.length === 1 ? k : k.replace(/^([A-Za-z])(.+)$/, '$1<sub>$2</sub>'));
-  function givenList(q, v, mine) {
+  function randValues(q) { var v = {}; Object.keys(q.params).forEach(function (k) { var p = q.params[k]; v[k] = p.rand ? p.rand() : p.base; }); return v; }
+  var NICE = { Rl: 'R<sub>load</sub>', Ll: 'L<sub>load</sub>', Cl: 'C<sub>load</sub>', beta: 'β', om: 'ω' };
+  function nm(k) { return NICE[k] || (k.length === 1 ? k : k.replace(/^([A-Za-z])(.+)$/, '$1<sub>$2</sub>')); }
+  function given(q, v, mine) {
     if (q.hideGiven) return '';
-    const items = Object.entries(q.params).filter(([k]) => !(q.hideParams || []).includes(k)).map(([k, p]) =>
-      `<span class="gv">${nm(k)} = <b>${U.given(v[k], p.unit)}</b>${mine && p.sym ? ` <span class="sym">(${U.given(p.base, p.unit)} + ${p.sym})</span>` : ''}</span>`);
-    return items.length ? `<div class="given">${items.join('')}</div>` : '';
+    var items = Object.keys(q.params).filter(function (k) { return (q.hideParams || []).indexOf(k) < 0; }).map(function (k) {
+      var p = q.params[k];
+      return '<span class="gv">' + nm(k) + ' = <b>' + U.given(v[k], p.unit) + '</b>' + (mine && p.sym ? ' <span class="sym">(' + U.given(p.base, p.unit) + ' + ' + p.sym + ')</span>' : '') + '</span>';
+    });
+    return items.length ? '<div class="given"><span class="gl">Given</span>' + items.join('') + '</div>' : '';
   }
-  const fn = (x, v) => (typeof x === 'function' ? x(v) : x || '');
-  const srcBadge = (q) => `<span class="badge ${q.src.type}">${q.src.type === 'drill' ? 'Drill' : q.src.label}</span>`;
-  const statusIcon = (id) => (state.prog[id] === 'got' ? '<span class="st got" title="Got it">✓</span>' : state.prog[id] === 'redo' ? '<span class="st redo" title="Need to redo">↻</span>' : '<span class="st none"></span>');
+  // work the current problem: values, steps and answer
+  function work() {
+    var q = list[cur].q;
+    if (!vals) vals = (sim || isDrill(q)) ? randValues(q) : paperValues(q);
+    var a = q.calc(vals), t = document.createElement('template');
+    t.innerHTML = q.sol(vals, a, q);
+    steps = [];
+    [].forEach.call(t.content.children, function (c) {
+      if (q.src.type === 'mock' && c.classList.contains('flagbox')) return;
+      if (c.classList.contains('step')) {
+        var h = c.querySelector('h4'), title = h ? h.innerHTML.replace(/^\d+\s*·\s*/, '') : ''; if (h) h.remove();
+        steps.push({ t: title, b: c.innerHTML });
+      } else if (steps.length) steps[steps.length - 1].b += c.outerHTML;
+      else steps.push({ t: 'Before you start', b: c.outerHTML });
+    });
+    ansr = q.answers.map(function (an) { return an.label + ' = <b>' + U.si(a[an.k], an.unit) + '</b>'; }).join(' &nbsp;·&nbsp; ') +
+      (q.src.basedOn ? '<span class="like">Same style as ' + q.src.basedOn + '.</span>' : '');
+  }
 
-  // ---------- one question ----------
-  function qcard(q, opts = {}) {
-    const d = h(`<details class="q" id="q-${q.id}" data-id="${q.id}"><summary>${statusIcon(q.id)}<span class="qs-main">${opts.lab ? `<span class="qlab">${opts.lab}</span>` : srcBadge(q)}<span class="qt">${q.title}</span></span>${q.src.marks ? `<span class="marks">${q.src.marks}</span>` : ''}</summary></details>`);
-    let built = false;
-    d.addEventListener('toggle', () => { if (d.open) { if (!built) { built = true; build(d, q, opts); } setActive(d); } });
+  function go(i) { cur = Math.max(0, Math.min(list.length - 1, i)); shown = 0; sim = false; vals = null; document.getElementById('nav').classList.remove('open'); render(); window.scrollTo(0, 0); }
+  function similar() { sim = true; vals = null; shown = 0; render(); window.scrollTo(0, 0); }
+  function original() { if (!sim) return; sim = false; vals = null; shown = 0; render(); window.scrollTo(0, 0); }
+
+  function nav() {
+    var n = document.getElementById('nav'), keep = n.scrollTop; n.innerHTML = '';
+    var ids = {}, done = 0; list.forEach(function (x) { if (!ids[x.q.id]) { ids[x.q.id] = 1; if (st[x.q.id] === 'got') done++; } }); var total = Object.keys(ids).length;
+    n.appendChild(el('h1', '', 'EEEN Lock-In'));
+    n.appendChild(el('div', 'sub sc', 'eeen20020 · electrical &amp; electronic circuits'));
+    var ms = el('div', 'mode');
+    [['core', 'Exam path'], ['papers', 'Past papers'], ['off', 'Off path']].forEach(function (m) {
+      var b = el('button', mode === m[0] ? 'on' : '', m[1]);
+      b.onclick = function () { if (mode === m[0]) return; mode = m[0]; set('mode', mode); load(); restore(); shown = 0; sim = false; vals = null; render(); window.scrollTo(0, 0); };
+      ms.appendChild(b);
+    });
+    n.appendChild(ms);
+    n.appendChild(el('div', 'prog', '<span>' + done + ' / ' + total + '</span><span class="bar"><i style="width:' + (100 * done / total) + '%"></i></span>'));
+    n.appendChild(el('div', 'toc-h sc', 'contents'));
+    var lastP = null, lastT = null;
+    list.forEach(function (x, i) {
+      if (x.p !== lastP) { lastP = x.p; n.appendChild(el('div', 'part ' + col(x.pi), '<span class="num">' + x.pi + '</span><span>' + x.p.title + '</span>')); }
+      if (x.t !== lastT) { lastT = x.t; n.appendChild(el('div', 'topic ' + col(x.pi), '<span class="num">' + x.pi + '.' + x.ti + '</span><span>' + x.t.title + '</span>')); }
+      var big = x.q.src.marks === '50 marks';
+      var b = el('button', 'qlink ' + col(x.pi) + (big ? ' big' : '') + (i === cur ? ' on' : '') + (st[x.q.id] ? ' ' + st[x.q.id] : ''),
+        '<span class="num">' + x.num + '</span><span class="r">' + short(x.q) + '</span>' + (notes[x.q.id] ? '<span class="nt" title="You wrote a note">✎</span>' : '') + '<span class="m">' + mark(x.q.id) + '</span>');
+      b.onclick = function () { go(i); };
+      n.appendChild(b);
+    });
+    var cut = { core: '<i>Six topics cover every question on all 10 past papers (2021 to 2025).</i> Bold = a 50-mark question (Q2 or Q3). Do the two mocks last: timed, on paper.',
+      papers: '<i>Every past paper in order, newest first.</i> These are the same questions as the exam path, so your ticks carry over.',
+      off: '<i>Only if you need the warm-up.</i> Single-skill DC questions. Finish the exam path first.' }[mode];
+    n.appendChild(el('div', 'cut', cut));
+    var sb = el('label', 'snbox', 'Student number (sets α…λ on the 2021–22 papers and the homework)');
+    var inp = document.createElement('input'); inp.inputMode = 'numeric'; inp.maxLength = 8; inp.value = sn;
+    inp.onchange = function () { sn = inp.value.replace(/\D/g, '').slice(0, 8); set('sn', sn); vals = null; shown = 0; render(); };
+    sb.appendChild(inp); n.appendChild(sb);
+    n.scrollTop = keep;
+    var on = n.querySelector('.qlink.on');
+    if (on) { var r = on.getBoundingClientRect(), nr = n.getBoundingClientRect(); if (r.top < nr.top + 40 || r.bottom > nr.bottom - 20) n.scrollTop += r.top - nr.top - nr.height / 3; }
+  }
+
+  function notesBox(x) {
+    var t = x.t, d = el('details', 'notes', '<summary>' + t.label + '</summary>'), db = el('div', 'body');
+    if (t.html) db.innerHTML = t.html;
+    if (t.cards) t.cards().forEach(function (c, k) {
+      var cd = el('details', 'card', '<summary>' + c.h + '</summary>'), cb = el('div', 'cb', c.body);
+      if (c.check) {
+        var ck = el('div', 'check', '<span class="h">Check.</span> ' + c.check.q), b = el('button', 'b', 'Show answer'), ca = el('div', 'ca', c.check.a);
+        ca.hidden = true; b.onclick = function () { ca.hidden = false; b.hidden = true; }; ck.appendChild(b); ck.appendChild(ca); cb.appendChild(ck);
+      }
+      cd.appendChild(cb); if (k === 0) cd.open = true;
+      cd.addEventListener('toggle', function () { if (cd.open) fit(cd); });
+      db.appendChild(cd);
+    });
+    d.appendChild(db);
+    if (t.open && x.first && !sim) d.open = true;
+    d.addEventListener('toggle', function () { if (d.open) fit(d); });
     return d;
   }
-  function setActive(d) { if (state.active && state.active !== d) state.active.classList.remove('active'); state.active = d; d.classList.add('active'); }
 
-  function build(d, q, opts) {
-    let mine = q.src.type !== 'drill', v = mine ? paperValues(q) : randValues(q), hintN = 0, stepN = 0;
-    const body = h('<div class="qb"></div>'); d.append(body);
-    d.addEventListener('click', () => setActive(d));
+  function render() {
+    set('at-' + mode, list[cur].q.id);
+    nav();
+    var x = list[cur], q = x.q, v = document.getElementById('view'); v.innerHTML = ''; v.className = col(x.pi);
+    work();
+    var rand = sim || isDrill(q);
+    v.appendChild(el('div', 'head', '<span class="sc">' + x.pi + ' · ' + x.p.title.toLowerCase() + '</span><span>Problem <b>' + (cur + 1) + '</b> of ' + list.length + '</span>'));
+    v.appendChild(el('h2', '', '<span class="num">' + x.pi + '.' + x.ti + '</span>' + x.t.title));
+    v.appendChild(el('div', 'src', x.t.src));
+    v.appendChild(notesBox(x));
 
-    function render() {
-      const a = q.calc(v); hintN = 0; stepN = 0;
-      const tp = topic(q.topic);
-      body.innerHTML = `
-        ${opts.hideTopic ? '' : `<div class="tags">${tp ? `<a class="tag t" href="#t-${tp.id}">Topic ${tp.n} · ${tp.name}</a>` : ''}${(q.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}${q.src.type !== 'drill' && q.src.marks ? `<span class="tag time">≈ ${minutes(q)} min</span>` : ''}</div>`}
-        ${givenList(q, v, mine && hasSym(q))}
-        ${q.note ? `<p class="note">${fn(q.note, v)}</p>` : ''}
-        ${q.lead ? `<p class="lead">${fn(q.lead, v)}</p>` : ''}
-        <p class="ask">${fn(q.ask, v)}</p>
-        <div class="fig">${q.fig(v)}</div>
-        ${q.form ? `<p class="form">Answer format: ${q.form}</p>` : ''}
-        <form class="ans">${q.answers.map(an => { const pf = U.pick(a[an.k], an.unit);
-          return `<label class="arow"><span class="al">${an.label}</span><span class="ain"><input inputmode="text" autocomplete="off" autocapitalize="off" data-k="${an.k}" data-scale="${pf[0]}" placeholder="?"><span class="au">${pf[1]}${an.unit}</span><span class="res" data-r="${an.k}"></span></span></label>`; }).join('')}
-          <div class="btns"><button class="b pri" type="submit">Check</button><button class="b" type="button" data-act="hint">Hint <kbd>H</kbd></button>
-          <button class="b" type="button" data-act="scramble">🎲 New numbers <kbd>S</kbd></button>
-          ${q.src.type === 'drill' ? '' : `<button class="b ghost" type="button" data-act="paper">${hasSym(q) ? 'My numbers' : q.src.type === 'mock' ? 'Mock numbers' : q.src.type === 'hw' ? 'Sheet numbers' : 'Paper numbers'}</button>`}</div>
-        </form>
-        <div class="hints"></div>
-        <div class="solwrap"><div class="solbar"><button class="b step" type="button" data-act="next">Show step 1 <kbd>N</kbd></button><button class="b ghost" type="button" data-act="all">Show all <kbd>A</kbd></button><span class="stepc"></span></div><div class="sol"></div></div>
-        <div class="mark"><button class="b gotb" type="button" data-act="got">✓ Got it <kbd>G</kbd></button><button class="b redob" type="button" data-act="redo">↻ Need to redo <kbd>R</kbd></button></div>`;
-      const sol = $('.sol', body);
-      sol.innerHTML = q.sol(v, a, q) + `<div class="final"><b>Answer</b> ${q.answers.map(an => `${an.label} = <b>${U.si(a[an.k], an.unit)}</b>`).join(' · ')}${q.src.basedOn ? `<br><span class="muted">Same style as ${q.src.basedOn}.</span>` : ''}</div>`;
-      if (q.src.type === 'mock') $$('.flagbox', sol).forEach(e => e.remove());
-      const parts = [...sol.children]; parts.forEach(p => { p.hidden = true; });
-      const nextB = $('[data-act=next]', body), stepc = $('.stepc', body);
-      const upd = () => { nextB.disabled = stepN >= parts.length; nextB.innerHTML = stepN >= parts.length ? 'All steps shown' : (stepN ? 'Next step' : 'Show step 1') + ' <kbd>N</kbd>'; stepc.textContent = stepN ? `${Math.min(stepN, parts.length)} of ${parts.length}` : `${parts.length} steps`; };
-      const reveal = (n) => { while (stepN < Math.min(n, parts.length)) { parts[stepN].hidden = false; fit(parts[stepN]); stepN++; } upd(); };
-      const mark = (s) => { if (state.prog[q.id] === s) delete state.prog[q.id]; else state.prog[q.id] = s; store.set('prog2', state.prog); paintMark(); refreshProgress(); };
-      const paintMark = () => { $('.gotb', body).classList.toggle('on', state.prog[q.id] === 'got'); $('.redob', body).classList.toggle('on', state.prog[q.id] === 'redo'); const s = $('summary .st', d); if (s) s.outerHTML = statusIcon(q.id); };
-      const api = {
-        next() { if (stepN < parts.length) { reveal(stepN + 1); parts[stepN - 1].scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } },
-        all() { reveal(parts.length); },
-        hint() { const hs = q.hints || []; if (hintN < hs.length) { $('.hints', body).append(h(`<p class="hint"><b>Hint ${hintN + 1}</b> ${hs[hintN]}</p>`)); hintN++; } if (hintN >= hs.length) $('[data-act=hint]', body).disabled = true; },
-        scramble() { v = randValues(q); mine = false; render(); },
-        paper() { v = paperValues(q); mine = true; render(); },
-        got() { mark('got'); }, redo() { mark('redo'); },
-      };
-      d._api = api; upd(); paintMark();
-      $$('[data-act]', body).forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); setActive(d); api[b.dataset.act](); }));
-      if (!(q.hints || []).length) $('[data-act=hint]', body).hidden = true;
-      $('.ans', body).addEventListener('submit', (e) => {
-        e.preventDefault();
-        $$('input[data-k]', body).forEach(inp => {
-          const k = inp.dataset.k, r = $(`[data-r="${k}"]`, body);
-          if (!inp.value.trim()) { r.textContent = ''; return; }
-          const u = U.parse(inp.value, +inp.dataset.scale), ok = U.close(u, a[k], 0.011), signOnly = !ok && U.close(-u, a[k], 0.011);
-          r.className = 'res ' + (ok ? 'ok' : 'bad'); r.textContent = ok ? '✓' : signOnly ? '✗ check the sign' : '✗';
-        });
-      });
-      fit(body);
+    var pr = el('div', 'prob');
+    if (sim) pr.appendChild(el('div', 'simtag', 'Similar question · same method, new numbers'));
+    pr.appendChild(el('div', 'qtext', '<span class="lead">Problem ' + x.num + (sim ? '′' : '') + '</span> <span class="ref">(' + (sim ? 'like ' : '') + refOf(q) + ')</span>. <b>' + q.title + '.</b>' +
+      (q.note ? '<p>' + fn(q.note, vals) + '</p>' : '') + (q.lead ? '<p>' + fn(q.lead, vals) + '</p>' : '') + '<p>' + fn(q.ask, vals) + '</p>'));
+    pr.appendChild(el('div', '', given(q, vals, !rand && hasSym(q))));
+    pr.appendChild(el('div', 'fig', q.fig(vals)));
+    if (q.form) pr.appendChild(el('p', 'form', 'Answer format: ' + q.form));
+    v.appendChild(pr);
+
+    var n = steps.length, all = shown > n;
+    if (shown === 0) v.appendChild(el('div', 'try', 'Try it on paper first, then reveal one step at a time.'));
+    if (shown > 0) {
+      var sol = el('div', 'sol', '<div class="lab">Solution.</div>');
+      steps.slice(0, shown).forEach(function (s, i) { sol.appendChild(el('div', 'step', '<span class="n">' + (i + 1) + '.</span><div><h3>' + s.t + '</h3>' + s.b + '</div>')); });
+      if (all) { sol.appendChild(el('div', 'ans', '<span class="l">Answer.</span>' + ansr)); sol.appendChild(el('div', 'qed', '∎')); }
+      v.appendChild(sol);
     }
-    render();
+    var row = el('div', 'row');
+    if (!all) {
+      var b1 = el('button', 'b pri', shown === 0 ? 'Show step 1' : (shown < n ? 'Next step (' + (shown + 1) + '/' + n + ')' : 'Show answer'));
+      b1.onclick = function () { shown++; render(); }; row.appendChild(b1);
+      var b2 = el('button', 'b', 'Full solution'); b2.onclick = function () { shown = n + 1; render(); }; row.appendChild(b2);
+    } else {
+      var g = el('button', 'b ok', '✓ Got it'); g.onclick = function () { st[q.id] = 'got'; set('prog2', st); go(cur + 1); }; row.appendChild(g);
+      var a = el('button', 'b warn', '↺ Redo later'); a.onclick = function () { st[q.id] = 'redo'; set('prog2', st); go(cur + 1); }; row.appendChild(a);
+      var h = el('button', 'b', 'Hide solution'); h.onclick = function () { shown = 0; render(); }; row.appendChild(h);
+    }
+    var sb = el('button', 'b simb', sim || isDrill(q) ? 'New numbers ↻' : 'Similar question ↻'); sb.onclick = similar; row.appendChild(sb);
+    if (sim && !isDrill(q)) { var ob = el('button', 'b simb', '← Back to original'); ob.onclick = original; row.appendChild(ob); }
+    v.appendChild(row);
+
+    var nb = el('div', 'mynotes', '<label for="note">✎ My notes on this question</label>');
+    var ta = document.createElement('textarea'); ta.id = 'note'; ta.rows = 3; ta.placeholder = 'Type anything you want to remember here. It saves by itself.'; ta.value = notes[q.id] || '';
+    function grow() { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; }
+    ta.oninput = function () { var had = !!notes[q.id]; if (ta.value.trim()) notes[q.id] = ta.value; else delete notes[q.id]; set('notes', notes); grow(); if (had !== !!notes[q.id]) nav(); };
+    nb.appendChild(ta); v.appendChild(nb); setTimeout(grow, 0);
+
+    var pg = el('div', 'pager');
+    function lbl(i) { var y = list[i]; return '<span>' + y.num + ' · ' + y.t.title + '</span><small>' + short(y.q) + '</small>'; }
+    var pv = el('button', 'pv' + (cur > 0 ? ' ' + col(list[cur - 1].pi) : ''), cur > 0 ? '<small>← Previous</small>' + lbl(cur - 1) : ''); pv.disabled = cur === 0; pv.onclick = function () { go(cur - 1); }; pg.appendChild(pv);
+    var nx = el('button', 'nx' + (cur < list.length - 1 ? ' ' + col(list[cur + 1].pi) : ''), cur < list.length - 1 ? '<small>Next →</small>' + lbl(cur + 1) : ''); nx.disabled = cur === list.length - 1; nx.onclick = function () { go(cur + 1); }; pg.appendChild(nx);
+    v.appendChild(pg);
+    v.appendChild(el('div', 'keys', 'Space: next step · A: full solution · S: similar question (new numbers) · O: back to original · ← / →: previous / next problem'));
+    fit(v);
+    if (shown > 0) { var last = v.querySelector('.ans') || v.querySelectorAll('.sol > .step')[shown - 1]; if (last && last.scrollIntoView) last.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
   }
 
-  const qlist = (ids, opts = {}) => { const el = h('<div class="qlist"></div>'); ids.forEach((id, i) => el.append(qcard(LK.byId[id], typeof opts === 'function' ? opts(LK.byId[id], i) : opts))); return el; };
-  const bar = (n, of) => `<span class="pbar" title="${n} of ${of}"><i style="width:${of ? 100 * n / of : 0}%"></i></span><span class="pnum">${n} / ${of}</span>`;
-  const rulesBox = () => `<details class="rules"><summary>Exam rules and pacing</summary><dl>${LK.rules.map(r => `<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join('')}</dl></details>`;
-
-  // ---------- views ----------
-  const views = {
-    path() {
-      const ids = examQs.map(q => q.id);
-      const el = h(`<section><div class="hero"><h2>Exam path</h2><p>Six topics cover <b>every question on all 10 past papers</b>. Work down the list.</p>
-        <p class="how"><b>How to use it:</b> try the question → hint → reveal the steps one at a time → mark <b>Got it</b> or <b>Need to redo</b> → hit 🎲 and do it again with new numbers.</p>
-        <div class="heroprog">${bar(got(ids), ids.length)} past-paper parts done</div></div><div class="tlist"></div></section>`);
-      LK.topics.forEach(t => { const all = t.core.concat(t.more);
-        $('.tlist', el).append(h(`<a class="tcard" href="#t-${t.id}"><span class="tn">${t.n}</span><span class="tmain"><b>${t.name}</b><span class="tsub">${t.sub}</span><span class="twhere">${t.where}</span><span class="tprog">${bar(got(all), all.length)}</span></span></a>`)); });
-      return el;
-    },
-    topic(id) {
-      const t = topic(id); if (!t) return views.path();
-      const nx = LK.topics[LK.topics.indexOf(t) + 1];
-      const el = h(`<section><a class="back" href="#path">← Exam path</a><div class="thead"><span class="tn big">${t.n}</span><div><h2>${t.name}</h2><p class="muted">${t.where}</p></div></div>
-        <h3 class="sec">Learn it</h3><div class="learn"></div>
-        <h3 class="sec">Core questions <span class="muted">one of each exam-style variation</span></h3><div class="core"></div>
-        <details class="more"><summary>More of the same <span class="muted">(${t.more.length} more past-paper parts)</span></summary></details>
-        ${nx ? `<a class="b pri big nextt" href="#t-${nx.id}">Next: Topic ${nx.n} · ${nx.name} →</a>` : `<a class="b pri big nextt" href="#exams">Next: Sample exams →</a>`}</section>`);
-      t.cards().forEach((c, k) => { const cd = h(`<details class="lcard" ${k === 0 ? 'open' : ''}><summary>${c.h}</summary><div class="lbody">${c.body}${c.check ? `<div class="check"><b>Quick check</b> ${c.check.q}<button class="b sm">Show answer</button><p class="ca" hidden>${c.check.a}</p></div>` : ''}</div></details>`);
-        const cb = $('.check button', cd); if (cb) cb.onclick = () => { $('.ca', cd).hidden = false; cb.remove(); };
-        cd.addEventListener('toggle', () => cd.open && fit(cd)); $('.learn', el).append(cd); });
-      $('.core', el).append(qlist(t.core)); $('.more', el).append(qlist(t.more));
-      return el;
-    },
-    exams() {
-      const el = h(`<section><h2>Sample exams</h2><p class="muted">Every past paper, fully worked. Newest first: recent papers are the best guide to yours.</p>${rulesBox()}<div class="plist"></div></section>`);
-      LK.papers.forEach(p => $('.plist', el).append(h(`<a class="prow" href="#p-${p.code.toLowerCase()}"><b>${p.code}</b><span class="pname">${p.name}</span><span class="tprog">${bar(got(p.qs), p.qs.length)}</span></a>`)));
-      return el;
-    },
-    paper(code) {
-      const p = LK.papers.find(x => x.code.toLowerCase() === code); if (!p) return views.exams();
-      const el = h(`<section><a class="back" href="#exams">← Sample exams</a><h2>${p.code} · ${p.name}</h2>${state.pdf ? `<p><a href="${p.file}" target="_blank" rel="noopener">Open the original paper (PDF)</a></p>` : ''}${rulesBox()}<div class="pq"></div></section>`);
-      $('.pq', el).append(qlist(p.qs, (q) => ({ lab: `Q${q.src.q}` })));
-      return el;
-    },
-    mocks() {
-      const el = h(`<section><h2>Fresh mocks</h2><p>Two new papers in the same style as the real ones, with new numbers. Do them <b>after</b> the exam path: timed, on paper, then check here.</p>${rulesBox()}<div class="plist"></div></section>`);
-      LK.mocks.forEach(m => $('.plist', el).append(h(`<a class="prow" href="#m-${m.code.slice(-1).toLowerCase()}"><b>${m.code}</b><span class="pname">7 parts · 200 marks · 120 min</span><span class="tprog">${bar(got(m.qs), m.qs.length)}</span></a>`)));
-      return el;
-    },
-    mock(c) {
-      const m = LK.mocks.find(x => x.code.slice(-1).toLowerCase() === c); if (!m) return views.mocks();
-      const el = h(`<section><a class="back" href="#mocks">← Mocks</a><h2>${m.name}</h2><div class="timer"><button class="b pri">Start 120-minute timer</button><span class="tleft"></span></div>${rulesBox()}<div class="pq"></div></section>`);
-      $('.pq', el).append(qlist(m.qs, (q) => ({ lab: `Q${q.src.q}`, hideTopic: true })));
-      let tm = null; $('.timer button', el).onclick = (e) => { const end = Date.now() + 120 * 60e3; clearInterval(tm); e.target.textContent = 'Restart timer';
-        const tick = () => { if (!document.body.contains(el)) return clearInterval(tm); const s = Math.max(0, Math.round((end - Date.now()) / 1000)); $('.tleft', el).textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} left`; }; tick(); tm = setInterval(tick, 1000); };
-      return el;
-    },
-    homework() {
-      const el = h(`<section><h2>All homework</h2><p class="muted">Homework 0 (the practice sheet) plus basics drills. ${state.pdf ? '<a href="homework/HW0_Homework_0_Practice.pdf" target="_blank" rel="noopener">Open the sheet (PDF)</a>' : ''}</p>
-        <div class="notebox"><b>What is not on the exam path, and why</b><p>The Homework 0 questions are single-skill versions of Topic 1. The exam path uses the exam versions instead, so these sit here as warm-ups.</p>
-        <p>The LTspice parts of the homework are left out. The exam is on paper, so you cannot be asked to simulate.</p><p>Only Homework 0 has been added so far. The other sheets will be sorted into the six topics when they are added.</p></div>
-        <h3 class="sec">Homework 0</h3><div class="hw"></div><h3 class="sec">Basics drills <span class="muted">random numbers every time</span></h3><div class="dr"></div></section>`);
-      $('.hw', el).append(qlist(LK.homework.ids)); $('.dr', el).append(qlist(LK.homework.drills));
-      return el;
-    },
-    map() {
-      const codes = LK.papers.map(p => p.code).reverse();
-      let t = `<table class="radar"><thead><tr><th>Topic</th>${codes.map(c => `<th><span>${c.slice(0, 3)}</span><span>${c.slice(3)}</span></th>`).join('')}<th>Parts</th></tr></thead><tbody>`;
-      LK.topics.forEach(tp => { const qs = examQs.filter(q => q.topic === tp.id);
-        t += `<tr><td><a href="#t-${tp.id}"><b>${tp.n}. ${tp.name}</b></a></td>${codes.map(c => { const hit = qs.filter(q => q.src.paper === c); return `<td class="${hit.length ? 'hit' : ''}">${hit.map(q => `<span class="${q.src.q.length === 1 ? 'big50' : ''}">${q.src.q.replace('1(', '').replace(')', '')}</span>`).join(' ')}</td>`; }).join('')}<td class="sum">${qs.length}</td></tr>`; });
-      t += '</tbody></table>';
-      return h(`<section><h2>Exam map</h2><p class="muted">Which topic each question tested. Letters are Q1 parts (20 marks each). <b class="big50">2</b> and <b class="big50">3</b> are the 50-mark questions.</p><div class="tw">${t}</div>
-        <h3 class="sec">What the papers tell you</h3><ul class="ins">
-        <li><b>Q2 is always a transfer function</b> (50 marks). Nine of ten use an op-amp. Topics 3 and 5 deserve the most time.</li>
-        <li><b>Each resit reuses the autumn circuits</b> and asks for a different quantity (AUT24 → SPR25, AUT23 → SPR24, and so on). Learn every quantity in each circuit, not just the one asked.</li>
-        <li><b>The autumn paper changes most years.</b> AUT25 brought in a controlled-source Thévenin, a bridge rectifier and a square wave into RC. Expect one or two new twists on the same six topics.</li>
-        <li><b>Q3 rotates:</b> diodes (5 papers), g<sub>m</sub> amplifier (2), transformer with RLC load (2), RC square wave (1).</li>
-        <li>Every paper has a DC part, a transient part and a diode part.</li></ul></section>`);
-    },
-  };
-
-  // ---------- routing ----------
-  function refreshProgress() { const ids = examQs.map(q => q.id); $('#gprog').innerHTML = bar(got(ids), ids.length); }
-  function route() {
-    const hsh = location.hash.slice(1) || 'path'; let v, tab = hsh;
-    if (hsh.startsWith('t-')) { v = views.topic(hsh.slice(2)); tab = 'path'; }
-    else if (hsh.startsWith('p-')) { v = views.paper(hsh.slice(2)); tab = 'exams'; }
-    else if (hsh.startsWith('m-')) { v = views.mock(hsh.slice(2)); tab = 'mocks'; }
-    else if (['path', 'exams', 'mocks', 'homework', 'map'].includes(hsh)) v = views[hsh](); else { v = views.path(); tab = 'path'; }
-    $$('nav.tabs a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + tab));
-    state.active = null; const main = $('#main'); main.innerHTML = ''; main.append(v); fit(main); window.scrollTo(0, 0); refreshProgress();
-  }
-  window.addEventListener('hashchange', route);
-
-  // ---------- keyboard ----------
-  function nav(dir) {
-    const all = $$('#main details.q');
-    if (!all.length) return; let i = all.indexOf(state.active); i = i < 0 ? (dir > 0 ? 0 : all.length - 1) : Math.max(0, Math.min(all.length - 1, i + dir));
-    if (state.active && state.active !== all[i]) state.active.open = false;
-    const m = all[i].closest('details.more'); if (m) m.open = true;
-    all[i].open = true; setActive(all[i]); setTimeout(() => all[i].scrollIntoView({ block: 'start', behavior: 'smooth' }), 30);
-  }
-  document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { if (e.key === 'Escape') e.target.blur(); return; }
-    const k = e.key.toLowerCase(), api = state.active && state.active.open && state.active._api;
-    if (k === '?') { $('#keys').hidden = !$('#keys').hidden; return; }
-    if (k === 'escape') { $('#keys').hidden = true; return; }
-    if (k === 'j') return nav(1); if (k === 'k') return nav(-1);
-    if (!api) return;
-    const map = { n: 'next', ' ': 'next', a: 'all', h: 'hint', g: 'got', r: 'redo', s: 'scramble' };
-    if (map[k]) { e.preventDefault(); api[map[k]](); }
+  document.getElementById('menu').onclick = function () { document.getElementById('nav').classList.toggle('open'); };
+  document.addEventListener('keydown', function (e) {
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
+    var n = steps ? steps.length : 0;
+    if (e.key === ' ') { e.preventDefault(); if (shown <= n) { shown++; render(); } }
+    else if (e.key === 'a' || e.key === 'A') { shown = n + 1; render(); }
+    else if (e.key === 's' || e.key === 'S') similar();
+    else if (e.key === 'o' || e.key === 'O') original();
+    else if (e.key === 'ArrowRight') go(cur + 1);
+    else if (e.key === 'ArrowLeft') go(cur - 1);
   });
-
-  // ---------- boot ----------
-  const sn = $('#sn'); sn.value = state.sn;
-  sn.onchange = () => { state.sn = sn.value.replace(/\D/g, '').slice(0, 8); store.set('sn', state.sn); route(); };
-  $('#ver').textContent = 'data ' + LK.version;
-  $('#keybtn').onclick = () => { $('#keys').hidden = !$('#keys').hidden; };
-  $('#keys').onclick = () => { $('#keys').hidden = true; };
-  fetch('papers/2025_AUT_EEEN20020.pdf', { method: 'HEAD' }).then(r => { if (r.ok && /pdf/.test(r.headers.get('content-type') || '')) { state.pdf = true; if (/^(p-|homework)/.test(location.hash.slice(1))) route(); } }).catch(() => { });
-  route();
+  render();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fit(document); });
 })();

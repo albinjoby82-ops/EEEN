@@ -2,14 +2,14 @@
 
 Exam-cram site for EEEN20020 (UCD). Open `index.html` in a browser, or host the repo root as a static site (no build step).
 
-**Tabs**
-- **Exam path** — six topics that cover every question on the 10 past papers (2021–2025). Each has a Learn-it box, core questions, and solutions revealed one step at a time with the reason for each step.
-- **Sample exams** — each past paper in order, fully worked, with exam rules and pacing.
-- **Mocks** — two fresh papers in the same style with new numbers.
-- **All homework** — Homework 0 and basics drills.
-- **Exam map** — which topic each question tested.
+Same layout as MATH_Lock-In: contents on the left, one problem per screen, steps revealed one at a time.
 
-Every question can be re-done with new numbers. Progress (Got it / Need to redo) is saved in the browser. Keyboard: `J`/`K` question, `N` next step, `H` hint, `G` got it, `R` redo, `S` scramble, `?` help.
+**Modes**
+- **Exam path** — six topics that cover every question on the 10 past papers (2021–2025), then two fresh mocks. Each topic opens with a Notes box and check questions.
+- **Past papers** — each past paper in order, fully worked, with exam rules and pacing.
+- **Off path** — Homework 0 and basics drills.
+
+Every question has a **Similar question** button (same method, new numbers) and a **My notes** box. Progress (Got it / Redo later) is saved in the browser. Keyboard: `Space` next step, `A` full solution, `S` similar question, `O` back to original, `←`/`→` previous / next problem.
 
 **Checking the maths:** `node tests/verify.mjs` runs every worked answer against an independent circuit simulation (DC and phasor nodal analysis, time stepping for transients and diodes), on the paper values plus random sets.
 

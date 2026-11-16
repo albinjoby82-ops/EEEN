@@ -113,5 +113,5 @@
   ]);
 
   LK.homework = { ids: LK.Q.filter(q => q.src.type === 'hw').map(q => q.id), drills: LK.Q.filter(q => q.src.type === 'drill').map(q => q.id) };
-  LK.version = '2026-11-12.1';
+  LK.version = '2026-11-16.1';
 })(typeof window !== 'undefined' ? window : globalThis);
