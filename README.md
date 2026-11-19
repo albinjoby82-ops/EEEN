@@ -21,3 +21,5 @@ Every question has a **Similar question** button (same method, new numbers) and 
 - `vendor/katex/` — maths rendering (KaTeX, MIT licence)
 
 When data changes, bump `LK.version` in `data/exams.js` and the `?v=` strings in `index.html`.
+
+**Printable notes** (`notes/`): open-book exam notes, one section per topic, same look and numbering as the site. Each section has the method, a formula sheet, and the core questions taken straight from the exam paper with full solutions and my own notes. `notes/index.html` shows every section; `notes/sectionN.html` shows one. Content lives in `notes/notes.js`. `python3 notes/build.py index notes/EEEN_Notes.html` (with the repo served on port 8765) builds one self-contained file to print to PDF.
