@@ -90,7 +90,7 @@
     const b = LK.byId[baseId]; const params = {};
     for (const [k, pp] of Object.entries(b.params)) params[k] = { ...pp, base: vals[k] ?? pp.base, sym: null };
     for (const k of Object.keys(vals)) if (!(k in b.params)) throw new Error(`mock ${id}: no param ${k} in ${baseId}`);
-    return LK.add({ ...b, id, params, src: { type: 'mock', paper, q, label: `${paper} · Q${q}`, marks, basedOn: b.src.label } });
+    return LK.add({ ...b, id, params, src: { type: 'mock', paper, q, label: `${paper} · Q${q}`, marks, basedOn: b.src.label, baseId: b.id } });
   };
   const mock = (code, name, list) => LK.mocks.push({ code, name, qs: list.map(([q, base, vals]) => clone(`${code.toLowerCase().replace(' ', '')}-${q.replace(/[()]/g, '')}`, base, vals, code, q, q.length > 1 ? '20%' : '50 marks').id) });
   mock('Mock A', 'Mock exam A', [
@@ -113,5 +113,5 @@
   ]);
 
   LK.homework = { ids: LK.Q.filter(q => q.src.type === 'hw').map(q => q.id), drills: LK.Q.filter(q => q.src.type === 'drill').map(q => q.id) };
-  LK.version = '2026-11-16.1';
+  LK.version = '2026-11-19.1';
 })(typeof window !== 'undefined' ? window : globalThis);

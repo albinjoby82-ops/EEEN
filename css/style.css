@@ -147,6 +147,25 @@ svg.plot{max-width:400px}
 .schem .nvt{fill:var(--hl);font-size:12.5px}
 .schem .cur{font-size:12.5px}
 
+/* ---------- exam paper split view ---------- */
+.b.paperb{float:right;margin:2px 0 8px 14px;border-color:var(--c);color:var(--c);font-size:15.5px;padding:4px 12px}
+.b.paperb:hover{background:var(--ct)}
+.b.paperb.on{background:var(--c);color:#fff}
+#paper{position:fixed;top:0;right:0;bottom:0;width:48vw;overflow:auto;background:#fff;border-left:2px solid var(--rule);z-index:4;padding:0 20px 30px}
+#paper .ph{position:sticky;top:0;background:#fff;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border-bottom:1px solid var(--rule);padding:14px 0 8px;margin-bottom:14px;font-size:17px}
+#paper .ph span{color:var(--mute);font-style:italic}
+#paper .ph small{display:block;color:var(--mute);font-size:14.5px}
+#paper .ph .b{padding:2px 12px;flex:none}
+#paper img{display:block;width:100%;height:auto;border:1px solid var(--hair)}
+#paper .mk{border-left:3px solid var(--warn);padding:4px 12px;font-size:16px;color:var(--mute)}
+#paper .pdf{display:inline-block;margin-top:10px;font-size:15.5px}
+body.split main{margin-right:48vw}
+@media (min-width:861px) and (max-width:1699px){
+  body.split .app{display:block}
+  body.split nav{position:fixed;inset:0 auto 0 0;width:330px;z-index:5;background:#fff;transform:translateX(-102%);transition:transform .2s;height:auto}
+  body.split nav.open{transform:none;box-shadow:0 0 0 100vw #0006}
+  body.split #menu{display:inline-block;margin-bottom:14px}
+}
 #menu{display:none}
 @media (max-width:860px){
   .app{display:block}
@@ -158,4 +177,7 @@ svg.plot{max-width:400px}
   .head{font-size:14px}.head .sc{display:none}
   .step{grid-template-columns:1.8em minmax(0,1fr)}
   .b.simb{margin-left:0}
+  #paper{top:auto;left:0;width:auto;height:50vh;border-left:0;border-top:2px solid var(--rule);padding:0 12px 20px}
+  body.split main{margin-right:0;padding-bottom:54vh}
+  .b.paperb{float:none;display:block;margin:0 0 10px}
 }

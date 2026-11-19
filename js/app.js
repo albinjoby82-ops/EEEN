@@ -5,7 +5,7 @@
   var KEY = 'eeen.';
   function get(k, d) { try { var v = localStorage.getItem(KEY + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
   function set(k, v) { try { localStorage.setItem(KEY + k, JSON.stringify(v)); } catch (e) { } }
-  var st = get('prog2', {}), notes = get('notes', {}), sn = get('sn', '25382076'), mode = get('mode', 'core');
+  var st = get('prog2', {}), notes = get('notes', {}), sn = get('sn', '25382076'), mode = get('mode', 'core'), paperOn = get('paper', false);
 
   // ---------- contents: parts > topics > questions, built from the question data ----------
   var RULES = '<dl class="rules">' + LK.rules.map(function (r) { return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>'; }).join('') + '</dl>';
@@ -94,6 +94,31 @@
       (q.src.basedOn ? '<span class="like">Same style as ' + q.src.basedOn + '.</span>' : '');
   }
 
+  // ---------- exam paper view: the question exactly as printed, in a split screen ----------
+  function paperOf(q) {
+    var s = q.src.type === 'exam' ? q.src : q.src.baseId && LK.byId[q.src.baseId] ? LK.byId[q.src.baseId].src : null;
+    if (!s || !s.paper || !s.q) return null;
+    var key = s.paper + '-' + s.q.replace(/[()]/g, ''), pg = (LK.paperPages || {})[key];
+    var pp = LK.papers.filter(function (x) { return x.code === s.paper; })[0];
+    if (!pg || !pp) return null;
+    return { key: key, label: s.label, page: pg, name: pp.name, pdf: pp.file, img: 'papers/q/' + key + '.png', mock: q.src.type === 'mock' };
+  }
+  var pane = el('aside', ''); pane.id = 'paper'; pane.hidden = true; document.body.appendChild(pane);
+  function togglePaper() { if (!paperOf(list[cur].q)) return; paperOn = !paperOn; set('paper', paperOn); render(); }
+  function showPaper() {
+    var r = paperOf(list[cur].q), on = paperOn && !!r;
+    document.body.classList.toggle('split', on); pane.hidden = !on;
+    if (!on || pane.dataset.key === r.key + r.mock) return;
+    pane.dataset.key = r.key + r.mock;
+    pane.innerHTML = '<div class="ph"><div><b>' + r.label + '</b> <span>as printed on the exam paper</span><small>' + r.name + ' · page ' + r.page + '</small></div>' +
+      '<button class="b" aria-label="Close the exam paper">✕</button></div>' +
+      (r.mock ? '<p class="mk">This mock question copies this exam question. The layout is the same; your numbers are different.</p>' : '') +
+      '<img src="' + r.img + '" alt="' + r.label + ' as printed on the exam paper">' +
+      '<a class="pdf" href="' + r.pdf + '#page=' + r.page + '" target="_blank" rel="noopener">Open the whole paper at page ' + r.page + ' ↗</a>';
+    pane.querySelector('button').onclick = togglePaper;
+    pane.scrollTop = 0;
+  }
+
   function go(i) { cur = Math.max(0, Math.min(list.length - 1, i)); shown = 0; sim = false; vals = null; document.getElementById('nav').classList.remove('open'); render(); window.scrollTo(0, 0); }
   function similar() { sim = true; vals = null; shown = 0; render(); window.scrollTo(0, 0); }
   function original() { if (!sim) return; sim = false; vals = null; shown = 0; render(); window.scrollTo(0, 0); }
@@ -165,7 +190,11 @@
     v.appendChild(el('div', 'src', x.t.src));
     v.appendChild(notesBox(x));
 
-    var pr = el('div', 'prob');
+    var pr = el('div', 'prob'), ref = paperOf(q);
+    if (ref) {
+      var pb = el('button', 'b paperb' + (paperOn ? ' on' : ''), paperOn ? '✕ Hide exam paper' : (ref.mock ? '▤ See the original exam question' : '▤ See it on the exam paper'));
+      pb.title = 'Opens the question exactly as it looks on the real paper, side by side (shortcut: P)'; pb.onclick = togglePaper; pr.appendChild(pb);
+    }
     if (sim) pr.appendChild(el('div', 'simtag', 'Similar question · same method, new numbers'));
     pr.appendChild(el('div', 'qtext', '<span class="lead">Problem ' + x.num + (sim ? '′' : '') + '</span> <span class="ref">(' + (sim ? 'like ' : '') + refOf(q) + ')</span>. <b>' + q.title + '.</b>' +
       (q.note ? '<p>' + fn(q.note, vals) + '</p>' : '') + (q.lead ? '<p>' + fn(q.lead, vals) + '</p>' : '') + '<p>' + fn(q.ask, vals) + '</p>'));
@@ -207,7 +236,8 @@
     var pv = el('button', 'pv' + (cur > 0 ? ' ' + col(list[cur - 1].pi) : ''), cur > 0 ? '<small>← Previous</small>' + lbl(cur - 1) : ''); pv.disabled = cur === 0; pv.onclick = function () { go(cur - 1); }; pg.appendChild(pv);
     var nx = el('button', 'nx' + (cur < list.length - 1 ? ' ' + col(list[cur + 1].pi) : ''), cur < list.length - 1 ? '<small>Next →</small>' + lbl(cur + 1) : ''); nx.disabled = cur === list.length - 1; nx.onclick = function () { go(cur + 1); }; pg.appendChild(nx);
     v.appendChild(pg);
-    v.appendChild(el('div', 'keys', 'Space: next step · A: full solution · S: similar question (new numbers) · O: back to original · ← / →: previous / next problem'));
+    v.appendChild(el('div', 'keys', 'Space: next step · A: full solution · S: similar question (new numbers) · O: back to original · P: exam paper · ← / →: previous / next problem'));
+    showPaper();
     fit(v);
     if (shown > 0) { var last = v.querySelector('.ans') || v.querySelectorAll('.sol > .step')[shown - 1]; if (last && last.scrollIntoView) last.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
   }
@@ -220,6 +250,7 @@
     else if (e.key === 'a' || e.key === 'A') { shown = n + 1; render(); }
     else if (e.key === 's' || e.key === 'S') similar();
     else if (e.key === 'o' || e.key === 'O') original();
+    else if (e.key === 'p' || e.key === 'P') togglePaper();
     else if (e.key === 'ArrowRight') go(cur + 1);
     else if (e.key === 'ArrowLeft') go(cur - 1);
   });
